@@ -1,0 +1,10 @@
+version: "3"
+services:
+  deeplearning:  # 서비스 이름
+    image: deeplearning:latest  # run할 이미지
+    container_name: deeplearning  # 컨테이너 이름
+    ports:
+      - 8887:8888
+    volumes:
+      - ./resources/:/home/
+    
