@@ -4,7 +4,7 @@ FROM ubuntu:18.04
 # update package list
 RUN apt update && apt upgrade -y
 # install python3.6 and pip3
-RUN apt install python3.6 -y
+RUN apt install python3.6-dev -y
 RUN apt install python3-pip -y
 
 # install git
