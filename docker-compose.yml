@@ -4,8 +4,8 @@ services:
     image: deeplearning:latest  # run할 이미지
     container_name: deeplearning  # 컨테이너 이름
     ports:
-      - 8887:8888  # jupyter notebook port
-      - 6005:6006  # tensorboard port
+      - 8885:8888  # jupyter notebook port
+      - 6003:6006  # tensorboard port
     volumes:
       - ./resources/:/home/
     
