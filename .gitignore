@@ -1,0 +1,8 @@
+.ipynb_checkpoints
+Untitled*
+data/
+model/
+submit/
+tokenizer/
+codes/custom_functions/__pycache__/
+!data/stopwords.txt
