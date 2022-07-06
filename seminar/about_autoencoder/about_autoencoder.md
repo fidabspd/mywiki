@@ -236,7 +236,7 @@ $$
 \because \int \log \bigg( \dfrac{q_{\phi}(z|x)}{p(z|x)} \bigg) q_{\phi}(z|x)\mathrm{d}z = KL(q_{\phi}(z|x) || p(z|x))
 $$
 
-즉, 첫번째 항을 최대화하면 $p(x)$의 Log-Likelihood와 같아진다. 그리고 이 첫번째 항이 ELBO(Evidence of Lower BOund)이다.
+즉, 첫번째 항을 최대화하면 $p(x)$의 Log-Likelihood와 같아진다. 그리고 이 첫번째 항이 ELBO(Evidence Lower BOund)이다.
 
 ### ELBO
 
@@ -306,4 +306,115 @@ $$
 
 Variational AutoEncoder는 $z$의 sampling개념과 Regularization term을 제외하면 코드 구현에서는 AutoEncoder와 사실상 다르지 않다. 하지만 만들어진 생각의 차이가 크기 때문에 AE는 Dimension Reduction에 목적이 있고, VAE는 Generating에 목적이 있다.
 
-여기까지 잘 이해했다면 VAE가 어떤 생각으로 만들어졌고, 왜 잘 작동하고, 어떻게 구현할 수 있는지 알게 된 것이다.
+여기까지 잘 이해했다면 VAE가 어떤 생각으로 만들어졌고, 왜 잘 작동하는지 알 수 있고, 그를 바탕으로 코드 구현 또한 가능하다.
+
+하지만 여기까지만 알아서는 MNIST스러운 무엇이 될 지 알 수 없는 28x28의 숫자 이미지만 생성할 수 있을 뿐, 원하는 숫자를 생성할 수 없다. 
+
+## Conditional Variational AutoEncoder
+
+![cvae_architecture](./cvae_architecture.png)
+
+원하는 숫자를 생성하기 위해서는 해당 숫자를 Condition으로 주어야한다. 그냥 앞의 모든 given값에 추가로 condition만 붙이면 된다. CVAE의 ELBO를 수식으로 보면 다음과 같다.
+
+$$
+\begin{align*}
+&\ \int \log \bigg( p_{\theta}(x|y,z) \dfrac{p(y)p(z)}{q_{\phi}(z|x,y)} \bigg) q_{\phi}(z|x,y) \mathrm{d}z \\
+=&\ \mathbb{E}_{q_{\phi}(z|x,y)} \Big[ \log (p_{\theta}(x|y,z)) + \log(p(y)) + \log(p(z)) - \log(q_{\phi}(z|x,y)) \Big]
+\end{align*}
+$$
+
+### Implementation of CVAE
+
+#### Model
+
+```python
+class CVAEEncoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, in_ch, hidden_ch, kernel_size, latent_dim, n_condition_labels, img_size):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
+        self.conv0 = torch.nn.Conv2d(in_ch, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
+        self.conv1 = torch.nn.Conv2d(hidden_ch, hidden_ch*2, kernel_size=kernel_size, padding=kernel_size//2)
+        self.linear_out = torch.nn.Linear(hidden_ch*2*img_size*img_size+cond_emb_dim, latent_dim*2)
+
+    def forward(self, x, condition):
+        cond_emb = self.condition_emb(condition).flatten(1)
+        x = torch.relu(self.conv0(x))
+        x = torch.relu(self.conv1(x)).flatten(1)
+        x_c = torch.cat([x, cond_emb], 1)
+        x_c = self.linear_out(x_c)
+        mu, sigma = x_c[:, :self.latent_dim], torch.exp(x_c[:, self.latent_dim:])
+        return mu, sigma
+    
+    
+class CVAEDecoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, latent_dim, hidden_ch, kernel_size, out_ch, n_condition_labels, img_size):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.hidden_ch = hidden_ch
+        self.img_size = img_size
+        self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
+        self.linear_in = torch.nn.Linear(latent_dim+cond_emb_dim, hidden_ch//2*img_size*img_size)
+        self.convt0 = torch.nn.ConvTranspose2d(hidden_ch//2, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
+        self.convt_out = torch.nn.ConvTranspose2d(hidden_ch, out_ch, kernel_size=kernel_size, padding=kernel_size//2)
+        
+    def forward(self, z, condition):
+        cond_emb = self.condition_emb(condition).flatten(1)
+        z_c = torch.cat([z, cond_emb], 1)
+        z_c = torch.relu(self.linear_in(z_c))
+        z_c = z_c.reshape((-1, self.hidden_ch//2, self.img_size, self.img_size))
+        z_c = torch.relu(self.convt0(z_c))
+        x_hat = torch.sigmoid(self.convt_out(z_c))
+        return x_hat
+
+
+class ConditionalVariationalAutoEncoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, in_ch, latent_dim, hidden_ch, kernel_size, n_condition_labels, img_size):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.encoder = CVAEEncoder(cond_emb_dim, in_ch, hidden_ch, kernel_size, latent_dim, n_condition_labels, img_size)
+        self.decoder = CVAEDecoder(cond_emb_dim, latent_dim, hidden_ch, kernel_size, in_ch, n_condition_labels, img_size)
+
+    def reparameterize(self, mu, sigma):
+        epsilon = torch.randn(self.latent_dim).to(mu.device)
+        z = mu + sigma * epsilon
+        return z
+        
+    def forward(self, x, condition):
+        mu, sigma = self.encoder(x, condition)
+        z = self.reparameterize(mu, sigma)
+        x_hat = self.decoder(z, condition)
+        return x_hat, mu, sigma
+```
+
+#### Loss
+
+Loss는 VAE와 완벽히 같다.
+
+### Generating Result
+
+```python
+model = torch.load('./model/cvae.pt')
+CONDITION = 2
+
+gen_results = []
+for _ in range(10):
+    gen_results.append(generate(model.decoder, 28, CONDITION))
+
+_ = plt.figure(figsize=(20, 8))
+for i in range(10):
+    plt.subplot(2, 5, i+1)
+    plt.xticks([])
+    plt.yticks([])
+    plt.imshow(gen_results[i])
+plt.show()
+```
+
+![generating_result](./generating_result.png)
+
+이렇게 다양한 스타일의 2를 생성할 수 있다.
+
+만약 condition에 어떤 숫자인지 뿐만이 아니라 글씨를 쓴 사람, 펜 색깔 등을 추가로 넣어주게 되면 좀 더 다양한 condition의 이미지를 생성할 수 있다.
