@@ -17,50 +17,51 @@
 ```python
 class AEEncoder(torch.nn.Module):
     
-    def __init__(self, in_ch, hidden_ch, kernel_size, latent_dim, img_size):
+    def __init__(self, in_dim, hidden_dim, latent_dim, dropout_ratio=0.1):
         super().__init__()
-        self.latent_dim = latent_dim
-        self.conv0 = torch.nn.Conv2d(in_ch, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.conv1 = torch.nn.Conv2d(hidden_ch, hidden_ch*2, kernel_size=kernel_size, padding=kernel_size//2)
-        self.linear_out = torch.nn.Linear(hidden_ch*2*img_size*img_size, latent_dim)
+        self.linear_in = torch.nn.Linear(in_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, latent_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
 
     def forward(self, x):
-        x = torch.relu(self.conv0(x))
-        x = torch.relu(self.conv1(x)).flatten(1)
+        x = x.flatten(1)
+        x = self.dropout(torch.nn.functional.elu(self.linear_in(x)))
+        x = self.dropout(torch.tanh(self.linear_hidden(x)))
         z = self.linear_out(x)
         return z
     
     
 class AEDecoder(torch.nn.Module):
     
-    def __init__(self, latent_dim, hidden_ch, kernel_size, out_ch, img_size):
+    def __init__(self, latent_dim, hidden_dim, out_dim, img_size, dropout_ratio=0.1):
         super().__init__()
         self.latent_dim = latent_dim
-        self.hidden_ch = hidden_ch
         self.img_size = img_size
-        self.linear_in = torch.nn.Linear(latent_dim, hidden_ch//2*img_size*img_size)
-        self.convt0 = torch.nn.ConvTranspose2d(hidden_ch//2, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.convt_out = torch.nn.ConvTranspose2d(hidden_ch, out_ch, kernel_size=kernel_size, padding=kernel_size//2)
+        self.linear_in = torch.nn.Linear(latent_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
         
     def forward(self, z):
-        z = torch.relu(self.linear_in(z))
-        z = z.reshape((-1, self.hidden_ch//2, self.img_size, self.img_size))
-        z = torch.relu(self.convt0(z))
-        x_hat = torch.sigmoid(self.convt_out(z))
+        z = self.dropout(torch.tanh(self.linear_in(z)))
+        z = self.dropout(torch.nn.functional.elu(self.linear_hidden(z)))
+        x_hat = torch.sigmoid(self.linear_out(z))
+        x_hat = x_hat.reshape((-1, 1, self.img_size, self.img_size))
         return x_hat
 
 
 class AutoEncoder(torch.nn.Module):
     
-    def __init__(self, in_ch, latent_dim, hidden_ch, kernel_size, img_size):
+    def __init__(self, in_dim, latent_dim, hidden_dim, img_size, dropout_ratio=0.1):
         super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = AEEncoder(in_ch, hidden_ch, kernel_size, latent_dim, img_size)
-        self.decoder = AEDecoder(latent_dim, hidden_ch, kernel_size, in_ch, img_size)
+        self.encoder = AEEncoder(in_dim, hidden_dim, latent_dim, dropout_ratio)
+        self.decoder = AEDecoder(latent_dim, hidden_dim, in_dim, img_size, dropout_ratio)
         
     def forward(self, x):
         z = self.encoder(x)
         x_hat = self.decoder(z)
+        x_hat = x_hat.clamp(1e-8, 1-1e-8)
         return x_hat
 ```
 
@@ -82,58 +83,60 @@ $\mu_i, \sigma_i, \epsilon_i$를 제외하고 구조만 보면 지극히 평범�
 
 ```python
 class VAEEncoder(torch.nn.Module):
-    
-    def __init__(self, in_ch, hidden_ch, kernel_size, latent_dim, img_size):
+
+    def __init__(self, in_dim, hidden_dim, latent_dim, dropout_ratio=0.1):
         super().__init__()
         self.latent_dim = latent_dim
-        self.conv0 = torch.nn.Conv2d(in_ch, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.conv1 = torch.nn.Conv2d(hidden_ch, hidden_ch*2, kernel_size=kernel_size, padding=kernel_size//2)
-        self.linear_out = torch.nn.Linear(hidden_ch*2*img_size*img_size, latent_dim*2)
+        self.linear_in = torch.nn.Linear(in_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, latent_dim*2)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
 
     def forward(self, x):
-        x = torch.relu(self.conv0(x))
-        x = torch.relu(self.conv1(x)).flatten(1)
+        x = x.flatten(1)
+        x = self.dropout(torch.nn.functional.elu(self.linear_in(x)))
+        x = self.dropout(torch.tanh(self.linear_hidden(x)))
         x = self.linear_out(x)
-        mu, sigma = x[:, :self.latent_dim], torch.exp(x[:, self.latent_dim:])
+        mu, sigma = x[:, :self.latent_dim], 1e-6+torch.nn.functional.softplus(x[:, self.latent_dim:])
         return mu, sigma
-    
-    
+
+
 class VAEDecoder(torch.nn.Module):
-    
-    def __init__(self, latent_dim, hidden_ch, kernel_size, out_ch, img_size):
+
+    def __init__(self, latent_dim, hidden_dim, out_dim, img_size, dropout_ratio=0.1):
         super().__init__()
         self.latent_dim = latent_dim
-        self.hidden_ch = hidden_ch
         self.img_size = img_size
-        self.linear_in = torch.nn.Linear(latent_dim, hidden_ch//2*img_size*img_size)
-        self.convt0 = torch.nn.ConvTranspose2d(hidden_ch//2, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.convt_out = torch.nn.ConvTranspose2d(hidden_ch, out_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        
+        self.linear_in = torch.nn.Linear(latent_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+
     def forward(self, z):
-        z = torch.relu(self.linear_in(z))
-        z = z.reshape((-1, self.hidden_ch//2, self.img_size, self.img_size))
-        z = torch.relu(self.convt0(z))
-        x_hat = torch.sigmoid(self.convt_out(z))
+        z = self.dropout(torch.tanh(self.linear_in(z)))
+        z = self.dropout(torch.nn.functional.elu(self.linear_hidden(z)))
+        x_hat = torch.sigmoid(self.linear_out(z))
+        x_hat = x_hat.reshape((-1, 1, self.img_size, self.img_size))
         return x_hat
 
 
 class VariationalAutoEncoder(torch.nn.Module):
-    
-    def __init__(self, in_ch, latent_dim, hidden_ch, kernel_size, img_size):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = VAEEncoder(in_ch, hidden_ch, kernel_size, latent_dim, img_size)
-        self.decoder = VAEDecoder(latent_dim, hidden_ch, kernel_size, in_ch, img_size)
 
+    def __init__(self, in_dim, latent_dim, hidden_dim, img_size, dropout_ratio=0.1):
+        super().__init__()
+        self.encoder = VAEEncoder(in_dim, hidden_dim, latent_dim, dropout_ratio)
+        self.decoder = VAEDecoder(latent_dim, hidden_dim, in_dim, img_size, dropout_ratio)
+        
     def reparameterize(self, mu, sigma):
-        epsilon = torch.randn(self.latent_dim).to(mu.device)
+        epsilon = torch.randn_like(mu).to(mu.device)
         z = mu + sigma * epsilon
         return z
-        
+
     def forward(self, x):
         mu, sigma = self.encoder(x)
         z = self.reparameterize(mu, sigma)
         x_hat = self.decoder(z)
+        x_hat = x_hat.clamp(1e-8, 1-1e-8)
         return x_hat, mu, sigma
 ```
 
@@ -147,7 +150,7 @@ class LogLikelihood(torch.nn.Module):
         self.scale = scale
         
     def forward(self, x, x_hat):
-        log_likelihood = torch.mean(x * torch.log(x_hat) + (1 - x) * torch.log(1 - x_hat))
+        log_likelihood = torch.mean(x * torch.log(x_hat) + (1 - x) * torch.log(1-x_hat))
         return log_likelihood * self.scale
 
 
@@ -158,7 +161,7 @@ class KLDivergence(torch.nn.Module):
         self.scale = scale
 
     def forward(self, mu, sigma):
-        kl_divergence = 0.5 * torch.mean(torch.square(mu) + torch.square(sigma) - torch.log(1e-8 + torch.square(sigma)) - 1)
+        kl_divergence = 0.5 * torch.mean(torch.square(mu) + torch.square(sigma) - torch.log(torch.square(sigma)) - 1)
         return kl_divergence * self.scale
 
 
@@ -330,56 +333,59 @@ $$
 ```python
 class CVAEEncoder(torch.nn.Module):
     
-    def __init__(self, cond_emb_dim, in_ch, hidden_ch, kernel_size, latent_dim, n_condition_labels, img_size):
+    def __init__(self, cond_emb_dim, in_dim, hidden_dim, latent_dim, n_condition_labels, dropout_ratio=0.1):
         super().__init__()
         self.latent_dim = latent_dim
         self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
-        self.conv0 = torch.nn.Conv2d(in_ch, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.conv1 = torch.nn.Conv2d(hidden_ch, hidden_ch*2, kernel_size=kernel_size, padding=kernel_size//2)
-        self.linear_out = torch.nn.Linear(hidden_ch*2*img_size*img_size+cond_emb_dim, latent_dim*2)
+        self.linear_in = torch.nn.Linear(in_dim+cond_emb_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, latent_dim*2)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
 
     def forward(self, x, condition):
+        x = x.flatten(1)
+        condition = condition.unsqueeze(1)
         cond_emb = self.condition_emb(condition).flatten(1)
-        x = torch.relu(self.conv0(x))
-        x = torch.relu(self.conv1(x)).flatten(1)
-        x_c = torch.cat([x, cond_emb], 1)
+        x_c = torch.cat([x, cond_emb], -1)
+        x_c = self.dropout(torch.nn.functional.elu(self.linear_in(x_c)))
+        x_c = self.dropout(torch.tanh(self.linear_hidden(x_c)))
         x_c = self.linear_out(x_c)
-        mu, sigma = x_c[:, :self.latent_dim], torch.exp(x_c[:, self.latent_dim:])
+        mu, sigma = x_c[:, :self.latent_dim], 1e-6+torch.nn.functional.softplus(x_c[:, self.latent_dim:])
         return mu, sigma
     
     
 class CVAEDecoder(torch.nn.Module):
     
-    def __init__(self, cond_emb_dim, latent_dim, hidden_ch, kernel_size, out_ch, n_condition_labels, img_size):
+    def __init__(self, cond_emb_dim, latent_dim, hidden_dim, out_dim, n_condition_labels, img_size, dropout_ratio=0.1):
         super().__init__()
         self.latent_dim = latent_dim
-        self.hidden_ch = hidden_ch
         self.img_size = img_size
         self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
-        self.linear_in = torch.nn.Linear(latent_dim+cond_emb_dim, hidden_ch//2*img_size*img_size)
-        self.convt0 = torch.nn.ConvTranspose2d(hidden_ch//2, hidden_ch, kernel_size=kernel_size, padding=kernel_size//2)
-        self.convt_out = torch.nn.ConvTranspose2d(hidden_ch, out_ch, kernel_size=kernel_size, padding=kernel_size//2)
+        self.linear_in = torch.nn.Linear(latent_dim+cond_emb_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
         
     def forward(self, z, condition):
+        condition = condition.unsqueeze(1)
         cond_emb = self.condition_emb(condition).flatten(1)
-        z_c = torch.cat([z, cond_emb], 1)
-        z_c = torch.relu(self.linear_in(z_c))
-        z_c = z_c.reshape((-1, self.hidden_ch//2, self.img_size, self.img_size))
-        z_c = torch.relu(self.convt0(z_c))
-        x_hat = torch.sigmoid(self.convt_out(z_c))
+        z_c = torch.cat([z, cond_emb], -1)
+        z_c = self.dropout(torch.tanh(self.linear_in(z_c)))
+        z_c = self.dropout(torch.nn.functional.elu(self.linear_hidden(z_c)))
+        x_hat = torch.sigmoid(self.linear_out(z_c))
+        x_hat = x_hat.reshape((-1, 1, self.img_size, self.img_size))
         return x_hat
 
 
 class ConditionalVariationalAutoEncoder(torch.nn.Module):
     
-    def __init__(self, cond_emb_dim, in_ch, latent_dim, hidden_ch, kernel_size, n_condition_labels, img_size):
+    def __init__(self, cond_emb_dim, in_dim, latent_dim, hidden_dim, n_condition_labels, img_size, dropout_ratio=0.1):
         super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = CVAEEncoder(cond_emb_dim, in_ch, hidden_ch, kernel_size, latent_dim, n_condition_labels, img_size)
-        self.decoder = CVAEDecoder(cond_emb_dim, latent_dim, hidden_ch, kernel_size, in_ch, n_condition_labels, img_size)
+        self.encoder = CVAEEncoder(cond_emb_dim, in_dim, hidden_dim, latent_dim, n_condition_labels, dropout_ratio)
+        self.decoder = CVAEDecoder(cond_emb_dim, latent_dim, hidden_dim, in_dim, n_condition_labels, img_size, dropout_ratio)
 
     def reparameterize(self, mu, sigma):
-        epsilon = torch.randn(self.latent_dim).to(mu.device)
+        epsilon = torch.randn_like(mu).to(mu.device)
         z = mu + sigma * epsilon
         return z
         
@@ -387,6 +393,7 @@ class ConditionalVariationalAutoEncoder(torch.nn.Module):
         mu, sigma = self.encoder(x, condition)
         z = self.reparameterize(mu, sigma)
         x_hat = self.decoder(z, condition)
+        x_hat = x_hat.clamp(1e-8, 1-1e-8)
         return x_hat, mu, sigma
 ```
 
@@ -413,8 +420,218 @@ for i in range(10):
 plt.show()
 ```
 
-![generating_result](./generating_result.png)
+![cvae_generating_result](./cvae_generating_result.png)
 
 이렇게 다양한 스타일의 2를 생성할 수 있다.
 
 만약 condition에 어떤 숫자인지 뿐만이 아니라 글씨를 쓴 사람, 펜 색깔 등을 추가로 넣어주게 되면 좀 더 다양한 condition의 이미지를 생성할 수 있다.
+
+## Adversarial AutoEncoder
+
+VAE의 아쉬운점이 하나 있다면 $z$의 분포를 무조건 정규분포 가정을 해야한다는 것이다. 그렇지 않으면 Regularization(KL Divergence) 계산이 쉽지 않다. 이를 극복하고자 생겨난 것이 AAE이다. AAE는 KL Divergence 대신 Discriminator를 사용한다.
+
+Regularization term은 $p(z)$와 $q_{\phi}(z|x)$를 유사하게 만들어주는 역할을 한다. 이 둘에서 나온 샘플을 Discriminator가 구분할 수 없으면 비슷하다고 볼 수 있는 것이다.
+
+$p(z)$에서 나온 샘플을 Real로, $q_{\phi}(z|x)$를 Fake로 인지하도록 Discriminator를 학습하며 다른 Adversarial Model들과 마찬가지로 학습이 어렵다는 단점이 있다.
+
+### Implementation of AAE
+
+#### Model
+
+```python
+class AAEEncoder(torch.nn.Module):
+    
+    def __init__(self, in_dim, hidden_dim, latent_dim, dropout_ratio=0.1):
+        super().__init__()
+        self.linear_in = torch.nn.Linear(in_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, latent_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+
+    def forward(self, x):
+        x = x.flatten(1)
+        x = self.dropout(torch.nn.functional.elu(self.linear_in(x)))
+        x = self.dropout(torch.tanh(self.linear_hidden(x)))
+        z = self.linear_out(x)
+        return z
+    
+    
+class AAEDecoder(torch.nn.Module):
+    
+    def __init__(self, latent_dim, hidden_dim, out_dim, img_size, dropout_ratio=0.1):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.img_size = img_size
+        self.linear_in = torch.nn.Linear(latent_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+        
+    def forward(self, z):
+        z = self.dropout(torch.tanh(self.linear_in(z)))
+        z = self.dropout(torch.nn.functional.elu(self.linear_hidden(z)))
+        x_hat = torch.sigmoid(self.linear_out(z))
+        x_hat = x_hat.reshape((-1, 1, self.img_size, self.img_size))
+        return x_hat
+
+
+class AdversarialAutoEncoder(torch.nn.Module):
+    
+    def __init__(self, in_dim, latent_dim, hidden_dim, img_size, dropout_ratio=0.1):
+        super().__init__()
+        self.encoder = AAEEncoder(in_dim, hidden_dim, latent_dim, dropout_ratio)
+        self.decoder = AAEDecoder(latent_dim, hidden_dim, in_dim, img_size, dropout_ratio)
+        
+    def forward(self, x):
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        x_hat = x_hat.clamp(1e-8, 1-1e-8)
+        return x_hat
+
+
+class Discriminator(torch.nn.Module):
+    
+    def __init__(self, latent_dim, hidden_dim, out_dim, dropout_ratio=0.1):
+        super().__init__()
+        self.linear_in = torch.nn.Linear(latent_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+        
+    def forward(self, z):
+        z = self.dropout(torch.relu(self.linear_in(z)))
+        probs = torch.sigmoid(self.linear_out(z))
+        return probs
+```
+
+#### Loss
+
+```python
+class LogLikelihood(torch.nn.Module):
+    
+    def __init__(self, scale=1.):
+        super().__init__()
+        self.scale = scale
+        
+    def forward(self, x, x_hat):
+        log_likelihood = torch.mean(x * torch.log(x_hat) + (1 - x) * torch.log(1-x_hat))
+        return log_likelihood * self.scale
+
+
+class DiscriminatorLoss(torch.nn.Module):
+    
+    def __init__(self, scale=1.):
+        super().__init__()
+        self.scale = scale
+        self.bce_loss = torch.nn.BCELoss()
+        
+    def forward(self, real_disc_probs, fake_disc_probs):
+        real_loss = self.bce_loss(real_disc_probs, torch.ones_like(real_disc_probs))
+        fake_loss = self.bce_loss(fake_disc_probs, torch.zeros_like(fake_disc_probs))
+        discriminator_loss = (real_loss + fake_loss) * self.scale
+        return discriminator_loss
+
+
+class GeneratorLoss(torch.nn.Module):
+
+    def __init__(self, scale=1.):
+        super().__init__()
+        self.scale = scale
+        self.bce_loss = torch.nn.BCELoss()
+        
+    def forward(self, fake_disc_probs):
+        generator_loss = self.bce_loss(fake_disc_probs, torch.ones_like(fake_disc_probs))
+        generator_loss = generator_loss * self.scale
+        return generator_loss
+```
+
+학습은 하나의 배치 안에서 Likelihood, Discriminator, Generator(AAE에서는 AAE의 Encoder와 같음) 순서로 학습을 진행한다.
+
+## Conditional Adversarial AutoEncoder
+
+CVAE와 마찬가지로 CAAE 또한 가능하다. 구현은 간단하다. AAE에 Condition을 주면 된다.
+
+### Implementation of CAAE
+
+#### Model
+
+```python
+class CAAEEncoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, in_dim, hidden_dim, latent_dim, n_condition_labels, dropout_ratio=0.1):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
+        self.linear_in = torch.nn.Linear(in_dim+cond_emb_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, latent_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+
+    def forward(self, x, condition):
+        x = x.flatten(1)
+        condition = condition.unsqueeze(1)
+        cond_emb = self.condition_emb(condition).flatten(1)
+        x_c = torch.cat([x, cond_emb], -1)
+        x_c = self.dropout(torch.nn.functional.elu(self.linear_in(x_c)))
+        x_c = self.dropout(torch.tanh(self.linear_hidden(x_c)))
+        z = self.linear_out(x_c)
+        return z
+    
+    
+class CAAEDecoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, latent_dim, hidden_dim, out_dim, n_condition_labels, img_size, dropout_ratio=0.1):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.img_size = img_size
+        self.condition_emb = torch.nn.Embedding(n_condition_labels, cond_emb_dim)
+        self.linear_in = torch.nn.Linear(latent_dim+cond_emb_dim, hidden_dim)
+        self.linear_hidden = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+        
+    def forward(self, z, condition):
+        condition = condition.unsqueeze(1)
+        cond_emb = self.condition_emb(condition).flatten(1)
+        z_c = torch.cat([z, cond_emb], -1)
+        z_c = self.dropout(torch.tanh(self.linear_in(z_c)))
+        z_c = self.dropout(torch.nn.functional.elu(self.linear_hidden(z_c)))
+        x_hat = torch.sigmoid(self.linear_out(z_c))
+        x_hat = x_hat.reshape((-1, 1, self.img_size, self.img_size))
+        return x_hat
+
+
+class ConditionalAdversarialAutoEncoder(torch.nn.Module):
+    
+    def __init__(self, cond_emb_dim, in_dim, latent_dim, hidden_dim, n_condition_labels, img_size, dropout_ratio=0.1):
+        super().__init__()
+        self.encoder = CAAEEncoder(cond_emb_dim, in_dim, hidden_dim, latent_dim, n_condition_labels, dropout_ratio)
+        self.decoder = CAAEDecoder(cond_emb_dim, latent_dim, hidden_dim, in_dim, n_condition_labels, img_size, dropout_ratio)
+        
+    def forward(self, x, condition):
+        z = self.encoder(x, condition)
+        x_hat = self.decoder(z, condition)
+        x_hat = x_hat.clamp(1e-8, 1-1e-8)
+        return x_hat
+
+
+class Discriminator(torch.nn.Module):
+    
+    def __init__(self, latent_dim, hidden_dim, out_dim, dropout_ratio=0.1):
+        super().__init__()
+        self.linear_in = torch.nn.Linear(latent_dim, hidden_dim)
+        self.linear_out = torch.nn.Linear(hidden_dim, out_dim)
+        self.dropout = torch.nn.Dropout(dropout_ratio)
+        
+    def forward(self, z):
+        probs = self.dropout(torch.relu(self.linear_in(z)))
+        probs = torch.sigmoid(self.linear_out(probs))
+        return probs
+```
+
+#### Loss
+
+Loss는 AAE와 완벽히 같다.
+
+### Generating Result
+
+![caae_generating_result](./caae_generating_result.png)
