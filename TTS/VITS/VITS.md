@@ -192,9 +192,8 @@ Inference 과정은 Training 과정에 비해 이해가 쉽다.
 
 - Phonemes(Text)를 Text Encoder에 넣어 Encoding한다.
 - 해당 값을 이용하여 각 Phonemes(Text)에 대한 $\mu, \sigma$를 뽑는다.
-- $\mu, \sigma$를 이용하여 reparameterize를 진행, $f_{\theta}(z)$를 뽑는다.
 - Encoding 된 Phonemes(Text)를 condition으로 이용하여 SDP에 Noise를 넣어 각 Phonemes(Text)마다의 Duration을 계산한다.
-- 각 Phonemes(Text)의 Duration으로 $f_{\theta}(z)$의 length를 늘린다.
+- 각 Phonemes(Text)의 Duration으로 $\mu, \sigma$의 길이를 늘리고, 이를 이용하여 reparameterize를 진행, $f_{\theta}(z)$를 뽑는다.
 - $f_{\theta}(z)$를 $f_{\theta}^{-1}$에 넣어 VAE의 latent variable $z$를 뽑는다.
 - $z$를 VAE의 Decoder(Hifi-GAN의 Generator)에 넣어 Raw Waveform을 얻는다.
 
@@ -234,3 +233,8 @@ Stochastic Duration Predictor의 효과를 보여준다. 위 그림은 같은 �
 ![table_4](./table_4.png)
 
 음성을 합성하는 속도 또한 빠르다. (SDP보다 DDP가 빠르긴 하다.)
+
+## Demo
+
+- <https://jaywalnut310.github.io/vits-demo/index.html>
+- https://colab.research.google.com/drive/1CO61pZizDj7en71NQG_aqqKdGaA_SaBf?usp=sharing
