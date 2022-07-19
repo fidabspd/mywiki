@@ -168,7 +168,7 @@ $$
 
 Glow-TTS의 Deterministic Duration Predictor (DDP)는 input text에 따라 Duration이 하나로 정해지기 때문에 다양한 발화의 길이나 속도, 리듬 등을 생성해낼 수 없었다. 하지만 Stochastic Duration Predictor (SDP)는 DDP와 다르게 Noise를 통한 Duration의 다양성을 실현할 수 있게 해준다.
 
-Text Encoder로 Encoding 된 Text를 이용하여 MAS에서 추정된 Duration 값을 output하도록 설계되어 있는 것은 DDP와 같다. 하지만 SDP는 Flow를 사용한다. 내부 구조는 매우 복잡하지만 결국은 Text를 condition, Duration을 $x$로 받아 $\mathcal{N}(0, I)$를 따르는 $z$(본 논문에서는 $f_{\theta}(z)$로 표현)를 만든다는 Flow의 틀에서 벗어나지 않는다.
+Text Encoder로 Encoding 된 Text를 이용하여 MAS에서 추정된 Duration 값을 output하도록 설계되어 있는 것은 DDP와 같다. 하지만 SDP는 Flow를 사용한다. 내부 구조는 매우 복잡하지만 결국은 Text를 condition, Duration을 $x$로 받아 $\mathcal{N}(0, I)$를 따르는 $z$를 만든다는 Flow의 틀에서 벗어나지 않는다.
 
 좀 더 자세한 구조는 아래와 같다.
 
