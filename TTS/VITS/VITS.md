@@ -48,7 +48,7 @@ Adversarial Training을 해야하기 때문에 Loss는 Discriminator Loss와 그
 
 ### Discriminator Loss
 
-훨씬 간단한 Discriminator Loss부터 살펴보자. 결론부터 얘기하면 HiFi-GAN의 Discriminator Loss를 그대로 사용한다. 앞서 말했듯 Discriminator는 생성된 Raw Waveform을 Mel-Spectrogram으로 변환한 것과 원래의 Ground Truth를 Mel-Spectrogram으로 변환한 것을 구분하도록 훈련된다. 이 과정에서 Fake는 0, Real은 1로 예측하도록 Loss를 구성한다.
+훨씬 간단한 Discriminator Loss부터 살펴보자. HiFi-GAN의 Discriminator Loss를 그대로 사용한다. Discriminator는 생성된 Raw Waveform과 원래의 Ground Truth Raw Waveform을 구분하도록 훈련된다. 이 과정에서 Fake는 0, Real은 1로 예측하도록 Loss를 구성한다.
 
 $$
 L_{adv}(D) = \mathbb{E}_{(y, z)}\Big[ (D(y)-1)^2 + (D(G(z)))^2 \Big]
