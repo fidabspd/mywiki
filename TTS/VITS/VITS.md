@@ -30,7 +30,7 @@ VITS는 TTS sample의 High resolution을 위해 Mel Spectrogram대신 Linear Spe
 
 ![GAN_part](./GAN_part.png)
 
-여기 Decoder가 HiFi-GAN의 Generator이다. 생성된 Raw Waveform을 Mel-Spectrogram으로 변환한 것과 원래의 Ground Truth를 Mel-Spectrogram으로 변환한 것을 구분하도록 Discriminator는 훈련된다.
+여기 Decoder가 HiFi-GAN의 Generator이다. Discriminator는 Generator를 통해 생성된 Generated Raw Waveform과 Ground Truth인 Real Raw Waveform을 구별하도록 훈련된다.
 
 ### Flow-based Generative Model
 
