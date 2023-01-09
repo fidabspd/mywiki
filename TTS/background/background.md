@@ -77,13 +77,24 @@ Mel-Spectrogram을 얘기하기 전에 두가지를 짚고 넘어가야한다.
 - 또한 음정이 변하면 Hz가 덧셈으로 변하는 것이 아니라 곱셈으로 변한다.  
 (3옥타브 라(A)가 440Hz인데 2옥타브 라는 220Hz, 4옥타브 라는 880Hz이다.)
 
-Mel-Spectrogram 및 Mel-filter의 기본 아이디어는 인간이 인식하는 주요 파동만을 남겨도 비슷하지 않을까?에서 출발한다.  
+Mel-Spectrogram 및 Mel-filter의 기본 아이디어는 *인간이 인식하는 주요 파동만을 남겨도 비슷하지 않을까?* 에서 출발한다. 일종의 feature extraction이라고 봐도 된다.  
 Mel-filter의 역할을 정말 간단하게 설명하면 다음과 같다.
 
 - 가청 주파수를 일정범위 벗어나는 파동은 지운다.
-- 로그 스케일을 씌워 Hz의 단위를 뭉갠다. (ex. 20~40: 1, 40~80: 2, 80~160: 3, ...)
+- 로그 스케일을 씌워 Hz의 단위를 뭉갠다. (ex. 20~40, 40~80, 80~160, ...) 그리고 이렇게 뭉개진 Hz 단위(bins)의 개수를 **n_mels**라고 부른다. (보통 26, 40, 80 정도를 사용한다고 한다.)
+- 추가로 dB역시 로그 스케일링을 진행한다. (Hz의 log scaling을 진행하는 이유와 같다.)
 
-그리고 이렇게 뭉개진 Hz 단위의 개수를 **n_mels**라고 부른다.
+![mel-spectrogram](./mel-spectrogram.png)
+
+### Spectrogram이나 Mel-Spectrogram을 사용하는 이유
+
+언뜻 생각해보면 정보의 손실이 있는 Spectrogram이나 Mel-Spectrogram을 사용하지 않고 raw audio를 그대로 사용해도 될 것 같다.
+
+하지만 raw audio는 1초당 sample rate만큼의 값을 가진다. 그리고 보통 sample rate는 22050을 사용한다.
+
+즉 10초짜리 오디오는 그 길이가 220500이다. 미래에는 어떨지 모르겠지만 이를 그 자체로 예측하는 것은 굉장히 비효율적이며 좋은 성능을 기대해볼 수도 없다.
+
+따라서 Spectrogram이나 Mel-Spectrogram을 raw audio로 되돌리는 작업이 필요하다.
 
 ### Vocoder
 
@@ -92,7 +103,7 @@ raw audio가 Spectrogram 혹은 Mel-Spectrogram으로 변환된것을 다시 raw
 STT에는 Vocoder가 필요하지 않다. 결국 만들어내고자하는 것이 Text이기 때문에 그렇다.  
 하지만 TTS는 최종적으로 만들고자 하는 것이 Spectrogram이나 Mel-Spectrogram이 아니라 raw audio이기 때문에 Vocoder가 필수적이다.
 
-Spectrogram이나 Mel-Spectrogram을 완벽하게 raw audio로 복원하는 것은 논리적으로 불가능하다. (완벽한 역연산은 불가능하다.) 시간의 단위를 뭉갰기 때문에, 특히 Mel-Spectrogram은 특히 주파수 자체를 지우고 뭉갰기 때문에 그렇다.
+Mel-Spectrogram을 완벽하게 raw audio로 복원하는 것은 논리적으로 불가능하다. (완벽한 역연산은 불가능하다.) 시간의 단위를 뭉갰기 때문에, 특히 Mel-Spectrogram은 특히 주파수 자체를 지우고 뭉갰기 때문에 그렇다.
 
 하지만 어찌됐건 역으로 되돌리기는 한다.  
 대표적인 고전 Vocoder로는 Griffin-lim이 있다. 이는 알고리즘적으로(혹은 수학적으로) Mel-filter와 STFT를 되돌린다고 한다.
