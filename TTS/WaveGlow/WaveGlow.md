@@ -40,8 +40,8 @@ $$
 $$
 \begin{align*}
 & \int p(x) \mathrm{d}x = \int \pi(z) \mathrm{d}z = 1 \\
-& \int p(x) \mathrm{d}x = \int \pi(f^{-1}(x)) \mathrm{d}f^{-1}(x) = 1 \\
-& \dfrac{\mathrm{d}}{\mathrm{d}x} \int p(x) \mathrm{d}x =\dfrac{\mathrm{d}}{\mathrm{d}x} \int \pi(f^{-1}(x)) \mathrm{d}f^{-1}(x) \\
+& \int p(x) \mathrm{d}x = \int \pi(f^{-1}(x)) f^{-1^\prime}(x) \mathrm{d}x = 1 \qquad \because \mathrm{Integration\ by\ substitution\ formula} \\
+& \dfrac{\mathrm{d}}{\mathrm{d}x} \int p(x) \mathrm{d}x = \dfrac{\mathrm{d}}{\mathrm{d}x} \int \pi(f^{-1}(x)) f^{-1^\prime}(x) \mathrm{d}x \\
 & p(x) = \pi(f^{-1}(x)) \bigg| \det \dfrac{\mathrm{d}f^{-1}(x)}{\mathrm{d}x} \bigg| \\
 & p(x) = \pi(f^{-1}(x)) \bigg| \det J(f^{-1}(x)) \bigg|
 \end{align*}
