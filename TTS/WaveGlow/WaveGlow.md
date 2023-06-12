@@ -50,16 +50,18 @@ $$
 (절대값은 transformation에서의 기울기 부호 변화를 고려해서 필요, $\det$은 $x$와 $z$가 벡터이기 때문에 필요하다.)
 
 $$
-z = h_0  \qquad z \sim \pi(z) \qquad h_0 \sim p_0(h_0) \\
-\; \\
-f_1(h_0) = h_1 \qquad f_1^{-1}(h_1) = h_0 \qquad h_1 \sim p_1(h_1) \\
-f_2(h_1) = h_2 \qquad f_2^{-1}(h_2) = h_1 \qquad h_2 \sim p_2(h_2) \\
-\vdots \\
-f_i(h_{i-1}) = h_i \qquad f_i^{-1}(h_i) = h_{i-1} \qquad h_i \sim p_i(h_i) \\
-\vdots \\
-f_k(h_{k-1}) = h_k \qquad f_k^{-1}(h_k) = h_{k-1} \qquad h_k \sim p_k(h_k) \\
-\; \\
-h_k = x \qquad h_k \sim p_k(h_k) \qquad x \sim p(x) 
+\begin{align*}
+z = h_0  \qquad & z \sim \pi(z) \qquad h_0 \sim p_0(h_0) \\
+& \\
+f_1(h_0) = h_1 \qquad & f_1^{-1}(h_1) = h_0 \qquad h_1 \sim p_1(h_1) \\
+f_2(h_1) = h_2 \qquad & f_2^{-1}(h_2) = h_1 \qquad h_2 \sim p_2(h_2) \\
+& \qquad \vdots \\
+f_i(h_{i-1}) = h_i \qquad & f_i^{-1}(h_i) = h_{i-1} \qquad h_i \sim p_i(h_i) \\
+& \qquad \vdots \\
+f_k(h_{k-1}) = h_k \qquad & f_k^{-1}(h_k) = h_{k-1} \qquad h_k \sim p_k(h_k) \\
+& \\
+h_k = x \qquad & h_k \sim p_k(h_k) \qquad x \sim p(x) 
+\end{align*}
 $$
 
 라고 하면 $h_i$에 대해 다음과 같은 일반화가 가능하다.
@@ -226,8 +228,8 @@ $$
 \begin{align*}
 \log p(x) =& \log \pi(z) + \sum \log \Big| \det (J(f_i^{-1}(h_i))) \Big| \\
 = & - \dfrac{\mathbf{z}^T\mathbf{z}}{2\sigma^2} \\
-& + \sum^{\#layers} \log \mathbf{s}_j \\
-& + \sum^{\#layers} \log \det \bigg| W_k \bigg|
+& + \sum^{NLayers} \log \mathbf{s}_j \\
+& + \sum^{NLayers} \log \det \bigg| W_k \bigg|
 \end{align*}
 $$
 
@@ -235,7 +237,7 @@ $$
 \begin{align*}
 because& \\
 & \log \pi(z) = - \dfrac{\mathbf{z}^T\mathbf{z}}{2\sigma^2} \qquad \because \mathrm{z} \sim \mathcal{N}(0, I) \\
-& \sum \log \Big| \det (J(f_i^{-1}(h_i))) \Big| = \sum^{\#layers} \log \mathbf{s}_j + \sum^{\#layers} \log \det \bigg| W_k \bigg|
+& \sum \log \Big| \det (J(f_i^{-1}(h_i))) \Big| = \sum^{NLayers} \log \mathbf{s}_j + \sum^{NLayers} \log \det \bigg| W_k \bigg|
 \end{align*}
 $$
 
@@ -274,6 +276,7 @@ $$
 
 위 식의 $\mathbf{s}$를 구하는 과정에서 Mel-spectrogram을 condition으로써 사용한다. (이는 역연산이 필요없다.)  
 위 내용을 한번에 모아서 수식으로 정리하면 다음과 같다.
+
 $$
 x_a,\ x_b' = split(\mathrm{z}) \\
 x_b = (x_b'-t) \oslash s \\
