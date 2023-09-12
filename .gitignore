@@ -1,4 +1,8 @@
 # for mac
 .DS_Store
 
+# temporary file
+tmp*
+
 tutorial_and_demo/CNF/results
+tutorial_and_demo/CNF/.data
