@@ -1,6 +1,9 @@
 # for mac
 .DS_Store
 
+# cache
+__pycache__
+
 # temporary file
 tmp*
 
