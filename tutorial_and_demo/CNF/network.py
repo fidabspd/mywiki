@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torchdiffeq import odeint_adjoint as odeint
+import numpy as np
 
 
 class ImageEncoder(nn.Module):
@@ -54,7 +55,7 @@ class ImageDecoder(nn.Module):
         output = output.view(-1, self.hidden_channels, self.latent_image_size, self.latent_image_size)
         output = self.dropout(torch.tanh(self.convt0(output)))
         output = self.dropout(torch.tanh(self.convt1(output)))
-        output = self.convt2(output)
+        output = torch.sigmoid(self.convt2(output))
         return output
 
 
@@ -93,7 +94,7 @@ class HyperNetwork(nn.Module):
 
         B = params[3 * self.blocksize :].reshape(self.width, 1, 1)
         return [W, B, U]
-    
+
 
 def trace_df_dz(f, z):
     """Calculates the trace (equals to det) of the Jacobian df/dz."""
@@ -145,7 +146,7 @@ class AECNF(nn.Module):
         ode_hidden_dim: int = 64,
         ode_width: int = 64,
         dropout_ratio: float = 0.1,
-        device: str = "cuda:0"
+        device: str = "cuda:0",
     ) -> None:
         super().__init__()
         self.batch_size = batch_size
@@ -157,7 +158,9 @@ class AECNF(nn.Module):
         mean = torch.zeros(latent_channels).type(torch.float32)
         cov = torch.zeros(latent_channels, latent_channels).type(torch.float32)
         cov.fill_diagonal_(0.1)
-        self.p_z0 = torch.distributions.MultivariateNormal(loc=mean.to(self.device), covariance_matrix=cov.to(self.device))
+        self.p_z0 = torch.distributions.MultivariateNormal(
+            loc=mean.to(self.device), covariance_matrix=cov.to(self.device)
+        )
 
         self.image_encoder = ImageEncoder(
             image_size=image_size,
@@ -200,3 +203,22 @@ class AECNF(nn.Module):
         x_probs = logp_x.mean(0)
 
         return reconstructed, x_probs
+
+    def infer(self, input: torch.Tensor, n_time_steps: int = 11) -> torch.Tensor:
+        infer_batch = input.size(0)
+        with torch.no_grad():
+            z_t0 = self.p_z0.sample([1]).to(self.device)
+            logp_diff_t0 = torch.zeros(infer_batch, 1).type(torch.float32).to(self.device)
+
+            time_space = np.linspace(self.t0, self.t1, n_time_steps)
+            z_t_samples, _ = odeint(
+                self.ode_func,
+                (z_t0, logp_diff_t0),
+                torch.tensor(time_space).to(self.device),  # [T0, T1] for generation
+                atol=1e-5,
+                rtol=1e-5,
+                method="dopri5",
+            )
+            gen_image = self.image_decoder(z_t_samples)
+
+        return gen_image, time_space
