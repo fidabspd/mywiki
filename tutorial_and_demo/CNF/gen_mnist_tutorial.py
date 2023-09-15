@@ -1,7 +1,9 @@
+import os
 import argparse
 from tqdm import tqdm
 import torch
 import torchvision
+import matplotlib.pyplot as plt
 
 from network import AECNF
 
@@ -11,14 +13,22 @@ def get_args():
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_epochs", type=int, default=100)
-    parser.add_argument("--eval_interval", type=int, default=200)
+    parser.add_argument("--eval_interval", type=int, default=50)
     parser.add_argument("--learning_rate", type=float, default=0.001)
 
-    parser.add_argument("--in_channels", type=int, default=1)
+    parser.add_argument("--in_out_channels", type=int, default=1)
     parser.add_argument("--hidden_channels", type=int, default=32)
     parser.add_argument("--latent_channels", type=int, default=16)
     parser.add_argument("--kernel_size", type=int, default=3)
+    parser.add_argument("--ode_t0", type=int, default=0)
+    parser.add_argument("--ode_t1", type=int, default=10)
+    parser.add_argument("--ode_hidden_dim", type=int, default=32)
+    parser.add_argument("--ode_width", type=int, default=32)
     parser.add_argument("--dropout_ratio", type=int, default=0.1)
+
+    parser.add_argument("--viz", type=bool, default=True)
+    parser.add_argument("--n_viz_time_steps", type=int, default=11)
+    parser.add_argument("--viz_save_dirpath", type=str, default="./cnf_mnist_viz_result/")
 
     parser.add_argument("--device", type=str, default="cuda:0")
     return parser.parse_args()
@@ -36,7 +46,22 @@ def calculate_loss(
     recon_loss = ((image_true - imgae_pred) ** 2).sum(dim=(1, 2, 3)).mean()
     cnf_loss = -x_probs
     total_loss = recon_loss + cnf_loss
-    return total_loss
+    return total_loss, recon_loss, cnf_loss
+
+
+def visualize_inference_result(z_t_samples, time_space, save_dirpath, global_step):
+    if not os.path.exists(save_dirpath):
+        os.makedirs(save_dirpath)
+
+    fig, ax = plt.subplots(1, 11, figsize=(22, 1.8))
+    for i in range(11):
+        t = time_space[i]
+        z_sample = z_t_samples[i].view(28, 28)
+        ax[i].imshow(z_sample.detach().cpu())
+        ax[i].set_axis_off()
+        ax[i].set_title("$p(\mathbf{z}_{" + str(t) + "})$")
+    save_filename = f"infer_{global_step}.png"
+    plt.savefig(os.path.join(save_dirpath, save_filename), dpi=300)
 
 
 def train_and_evaluate(
@@ -46,6 +71,9 @@ def train_and_evaluate(
     eval_dl: torch.utils.data.DataLoader,
     n_epochs: int = 100,
     eval_interval: int = 200,
+    viz: bool = True,
+    n_viz_time_steps: int = 11,
+    viz_save_dirpath: str = "./cnf_mnist_viz_result/",
 ):
     def train_and_evaluate_one_epoch():
         nonlocal global_step
@@ -59,22 +87,50 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, x_probs = model(image)
 
-            total_loss = calculate_loss(image, reconstructed, x_probs)
+            total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs)
             total_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-            # if global_step % eval_interval == 0:
-            #     evaluate()
+            step_pbar.set_description(f"Train total loss: {total_loss:.2f}")
+
+            if global_step % eval_interval == 0:
+                eval_total_loss, eval_recon_loss, eval_cnf_loss = evaluate()
+                print(
+                    "\n\ntrain loss:",
+                    f"total_loss: {total_loss}, recon_loss: {recon_loss}, cnf_loss: {cnf_loss}",
+                    sep="\n\t",
+                )
+                print(
+                    "eval loss:",
+                    f"total_loss: {eval_total_loss}, recon_loss: {eval_recon_loss}, cnf_loss: {eval_cnf_loss}",
+                    sep="\n\t",
+                )
 
     def evaluate():
         model.eval()
-        raise NotImplementedError
+        # eval_step_pbar = tqdm(eval_dl)
+        # for batch in eval_step_pbar:
+        for batch in eval_dl:
+            image, label = batch
+            image, label = image.to(args.device), label.to(args.device)
+            reconstructed, x_probs = model(image)
+
+            eval_total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs)
+            break
+
+        if viz:
+            input = image[:1]
+            z_t_samples, time_space = model.infer(input, n_viz_time_steps)
+            visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
+
+        return eval_total_loss, recon_loss, cnf_loss
 
     global_step = -1
 
     epoch_pbar = tqdm(range(n_epochs))
     for epoch_idx in epoch_pbar:
+        epoch_pbar.set_description(f"Epoch: {epoch_idx}")
         train_and_evaluate_one_epoch()
 
 
@@ -89,7 +145,20 @@ def main(args):
         drop_last=True,
     )
 
-    model = AECNF().to(args.device)
+    model = AECNF(
+        batch_size=args.batch_size,
+        image_size=28,
+        in_out_channels=args.in_out_channels,
+        hidden_channels=args.hidden_channels,
+        latent_channels=args.latent_channels,
+        kernel_size=args.kernel_size,
+        ode_t0=args.ode_t0,
+        ode_t1=args.ode_t1,
+        ode_hidden_dim=args.ode_hidden_dim,
+        ode_width=args.ode_width,
+        dropout_ratio=args.dropout_ratio,
+        device=args.device,
+    ).to(args.device)
     n_params = count_parameters(model)
     print(f"n_params: {n_params}")
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -98,8 +167,12 @@ def main(args):
         model=model,
         optimizer=optimizer,
         train_dl=train_dl,
+        eval_dl=train_dl,
         n_epochs=args.n_epochs,
         eval_interval=args.eval_interval,
+        viz=args.viz,
+        n_viz_time_steps=args.n_viz_time_steps,
+        viz_save_dirpath=args.viz_save_dirpath,
     )
 
 
