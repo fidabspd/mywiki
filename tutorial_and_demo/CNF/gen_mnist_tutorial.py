@@ -11,20 +11,22 @@ from network import AECNF
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--n_epochs", type=int, default=100)
-    parser.add_argument("--eval_interval", type=int, default=50)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--eval_interval", type=int, default=200)
+    parser.add_argument("--learning_rate", type=float, default=0.002)
 
     parser.add_argument("--in_out_channels", type=int, default=1)
     parser.add_argument("--hidden_channels", type=int, default=32)
-    parser.add_argument("--latent_channels", type=int, default=16)
+    parser.add_argument("--latent_dim", type=int, default=4)
     parser.add_argument("--kernel_size", type=int, default=3)
     parser.add_argument("--ode_t0", type=int, default=0)
     parser.add_argument("--ode_t1", type=int, default=10)
     parser.add_argument("--ode_hidden_dim", type=int, default=32)
     parser.add_argument("--ode_width", type=int, default=32)
-    parser.add_argument("--dropout_ratio", type=int, default=0.1)
+    parser.add_argument("--dropout_ratio", type=float, default=0.1)
+
+    parser.add_argument("--cnf_loss_weight", type=float, default=1.5)
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
@@ -42,10 +44,11 @@ def calculate_loss(
     image_true: torch.Tensor,
     imgae_pred: torch.Tensor,
     x_probs: torch.Tensor,
+    cnf_loss_weight: float = 3.0,
 ):
     recon_loss = ((image_true - imgae_pred) ** 2).sum(dim=(1, 2, 3)).mean()
     cnf_loss = -x_probs
-    total_loss = recon_loss + cnf_loss
+    total_loss = recon_loss + cnf_loss_weight * cnf_loss
     return total_loss, recon_loss, cnf_loss
 
 
@@ -71,6 +74,7 @@ def train_and_evaluate(
     eval_dl: torch.utils.data.DataLoader,
     n_epochs: int = 100,
     eval_interval: int = 200,
+    cnf_loss_weight: float = 3.0,
     viz: bool = True,
     n_viz_time_steps: int = 11,
     viz_save_dirpath: str = "./cnf_mnist_viz_result/",
@@ -87,17 +91,18 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, x_probs = model(image)
 
-            total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs)
+            total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs, cnf_loss_weight)
             total_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-            step_pbar.set_description(f"Train total loss: {total_loss:.2f}")
+            step_pbar.set_description(f"[Train total loss: {total_loss:.2f}]")
 
             if global_step % eval_interval == 0:
                 eval_total_loss, eval_recon_loss, eval_cnf_loss = evaluate()
+                print(f"\n\n\n[Global step: {global_step}]")
                 print(
-                    "\n\ntrain loss:",
+                    "train loss:",
                     f"total_loss: {total_loss}, recon_loss: {recon_loss}, cnf_loss: {cnf_loss}",
                     sep="\n\t",
                 )
@@ -116,11 +121,10 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, x_probs = model(image)
 
-            eval_total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs)
+            eval_total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs, cnf_loss_weight)
             break
 
         if viz:
-            input = image[:1]
             z_t_samples, time_space = model.generate(n_viz_time_steps)
             visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
 
@@ -150,7 +154,7 @@ def main(args):
         image_size=28,
         in_out_channels=args.in_out_channels,
         hidden_channels=args.hidden_channels,
-        latent_channels=args.latent_channels,
+        latent_dim=args.latent_dim,
         kernel_size=args.kernel_size,
         ode_t0=args.ode_t0,
         ode_t1=args.ode_t1,
@@ -170,6 +174,7 @@ def main(args):
         eval_dl=train_dl,
         n_epochs=args.n_epochs,
         eval_interval=args.eval_interval,
+        cnf_loss_weight=args.cnf_loss_weight,
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
         viz_save_dirpath=args.viz_save_dirpath,

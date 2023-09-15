@@ -10,7 +10,7 @@ class ImageEncoder(nn.Module):
         image_size: int = 28,
         in_channels: int = 1,
         hidden_channels: int = 32,
-        latent_channels: int = 16,
+        latent_dim: int = 16,
         kernel_size: int = 3,
         dropout_ratio: float = 0.1,
     ) -> None:
@@ -19,7 +19,7 @@ class ImageEncoder(nn.Module):
         self.conv1 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.conv2 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.flatten = nn.Flatten(start_dim=1)
-        self.linear = nn.Linear((image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels, latent_channels)
+        self.linear = nn.Linear((image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels, latent_dim)
         self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -35,7 +35,7 @@ class ImageDecoder(nn.Module):
     def __init__(
         self,
         image_size: int = 28,
-        latent_channels: int = 16,
+        latent_dim: int = 16,
         hidden_channels: int = 32,
         out_channels: int = 1,
         kernel_size: int = 3,
@@ -44,7 +44,7 @@ class ImageDecoder(nn.Module):
         super().__init__()
         self.hidden_channels = hidden_channels
         self.latent_image_size = image_size - 3 * (kernel_size - 1)
-        self.linear = nn.Linear(latent_channels, (image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels)
+        self.linear = nn.Linear(latent_dim, (image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels)
         self.convt0 = nn.ConvTranspose2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.convt1 = nn.ConvTranspose2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.convt2 = nn.ConvTranspose2d(hidden_channels, out_channels, kernel_size, 1)
@@ -139,7 +139,7 @@ class AECNF(nn.Module):
         image_size: int = 28,
         in_out_channels: int = 1,
         hidden_channels: int = 32,
-        latent_channels: int = 16,
+        latent_dim: int = 16,
         kernel_size: int = 3,
         ode_t0: int = 0,
         ode_t1: int = 10,
@@ -155,8 +155,8 @@ class AECNF(nn.Module):
         self.t1 = ode_t1
 
         # pdf of z0
-        mean = torch.zeros(latent_channels).type(torch.float32)
-        cov = torch.zeros(latent_channels, latent_channels).type(torch.float32)
+        mean = torch.zeros(latent_dim).type(torch.float32)
+        cov = torch.zeros(latent_dim, latent_dim).type(torch.float32)
         cov.fill_diagonal_(0.1)
         self.p_z0 = torch.distributions.MultivariateNormal(
             loc=mean.to(self.device), covariance_matrix=cov.to(self.device)
@@ -166,20 +166,20 @@ class AECNF(nn.Module):
             image_size=image_size,
             in_channels=in_out_channels,
             hidden_channels=hidden_channels,
-            latent_channels=latent_channels,
+            latent_dim=latent_dim,
             kernel_size=kernel_size,
             dropout_ratio=dropout_ratio,
         )
         self.image_decoder = ImageDecoder(
             image_size=image_size,
-            latent_channels=latent_channels,
+            latent_dim=latent_dim,
             hidden_channels=hidden_channels,
             out_channels=in_out_channels,
             kernel_size=kernel_size,
             dropout_ratio=dropout_ratio,
         )
         self.ode_func = ODEFunc(
-            in_out_dim=latent_channels,
+            in_out_dim=latent_dim,
             hidden_dim=ode_hidden_dim,
             width=ode_width,
         )
