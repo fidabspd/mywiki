@@ -204,11 +204,10 @@ class AECNF(nn.Module):
 
         return reconstructed, x_probs
 
-    def infer(self, input: torch.Tensor, n_time_steps: int = 11) -> torch.Tensor:
-        infer_batch = input.size(0)
+    def generate(self, n_time_steps: int = 2) -> torch.Tensor:
         with torch.no_grad():
             z_t0 = self.p_z0.sample([1]).to(self.device)
-            logp_diff_t0 = torch.zeros(infer_batch, 1).type(torch.float32).to(self.device)
+            logp_diff_t0 = torch.zeros(1, 1).type(torch.float32).to(self.device)
 
             time_space = np.linspace(self.t0, self.t1, n_time_steps)
             z_t_samples, _ = odeint(

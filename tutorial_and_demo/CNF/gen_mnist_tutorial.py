@@ -121,7 +121,7 @@ def train_and_evaluate(
 
         if viz:
             input = image[:1]
-            z_t_samples, time_space = model.infer(input, n_viz_time_steps)
+            z_t_samples, time_space = model.generate(n_viz_time_steps)
             visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
 
         return eval_total_loss, recon_loss, cnf_loss
