@@ -44,12 +44,19 @@ def calculate_loss(
     image_true: torch.Tensor,
     imgae_pred: torch.Tensor,
     x_probs: torch.Tensor,
+    mean: torch.Tensor,
+    std: torch.Tensor,
     cnf_loss_weight: float = 3.0,
 ):
-    recon_loss = ((image_true - imgae_pred) ** 2).sum(dim=(1, 2, 3)).mean()
+    recon_loss = image_true * torch.log(imgae_pred) + (1 - image_true) * torch.log(1 - imgae_pred)
+    recon_loss = torch.flatten(recon_loss, start_dim=1).sum(dim=1).mean()
+    kl_divergence = torch.square(mean) + torch.square(std) - torch.log(torch.square(std)) - 1
+    kl_divergence = 0.5 * torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
+    elbo = recon_loss - kl_divergence
     cnf_loss = -x_probs
-    total_loss = recon_loss + cnf_loss_weight * cnf_loss
-    return total_loss, recon_loss, cnf_loss
+    vae_loss = -elbo
+    total_loss = vae_loss + cnf_loss_weight * cnf_loss
+    return total_loss, recon_loss, kl_divergence, cnf_loss
 
 
 def visualize_inference_result(z_t_samples, time_space, save_dirpath, global_step):
@@ -89,9 +96,9 @@ def train_and_evaluate(
 
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs = model(image)
+            reconstructed, x_probs, mean, std = model(image)
 
-            total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs, cnf_loss_weight)
+            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
             total_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -99,16 +106,16 @@ def train_and_evaluate(
             step_pbar.set_description(f"[Train total loss: {total_loss:.2f}]")
 
             if global_step % eval_interval == 0:
-                eval_total_loss, eval_recon_loss, eval_cnf_loss = evaluate()
+                eval_total_loss, eval_recon_loss, eval_kl_divergence, eval_cnf_loss = evaluate()
                 print(f"\n\n\n[Global step: {global_step}]")
                 print(
                     "train loss:",
-                    f"total_loss: {total_loss}, recon_loss: {recon_loss}, cnf_loss: {cnf_loss}",
+                    f"total_loss: {total_loss}, recon_loss: {recon_loss}, kl_divergence: {kl_divergence}, cnf_loss: {cnf_loss}",
                     sep="\n\t",
                 )
                 print(
                     "eval loss:",
-                    f"total_loss: {eval_total_loss}, recon_loss: {eval_recon_loss}, cnf_loss: {eval_cnf_loss}",
+                    f"total_loss: {eval_total_loss}, recon_loss: {eval_recon_loss}, kl_divergence: {eval_kl_divergence}, cnf_loss: {eval_cnf_loss}",
                     sep="\n\t",
                 )
 
@@ -119,16 +126,16 @@ def train_and_evaluate(
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs = model(image)
+            reconstructed, x_probs, mean, std = model(image)
 
-            eval_total_loss, recon_loss, cnf_loss = calculate_loss(image, reconstructed, x_probs, cnf_loss_weight)
+            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
             break
 
         if viz:
             z_t_samples, time_space = model.generate(n_viz_time_steps)
             visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
 
-        return eval_total_loss, recon_loss, cnf_loss
+        return total_loss, recon_loss, kl_divergence, cnf_loss
 
     global_step = -1
 

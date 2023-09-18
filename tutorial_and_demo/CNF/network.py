@@ -12,14 +12,17 @@ class ImageEncoder(nn.Module):
         hidden_channels: int = 32,
         latent_dim: int = 16,
         kernel_size: int = 3,
+        epsilon: float = 1e-6,
         dropout_ratio: float = 0.1,
     ) -> None:
         super().__init__()
+        self.latent_dim = latent_dim
+        self.epsilon = epsilon
         self.conv0 = nn.Conv2d(in_channels, hidden_channels, kernel_size, 1)
         self.conv1 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.conv2 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, 1)
         self.flatten = nn.Flatten(start_dim=1)
-        self.linear = nn.Linear((image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels, latent_dim)
+        self.linear = nn.Linear((image_size - (kernel_size - 1) * 3) ** 2 * hidden_channels, latent_dim * 2)
         self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -28,7 +31,10 @@ class ImageEncoder(nn.Module):
         output = self.dropout(torch.tanh(self.conv2(output)))
         output = self.flatten(output)
         output = self.linear(output)
-        return output
+        mean, std = torch.split(output, self.latent_dim, dim=1)
+        std = torch.exp(std) + self.epsilon
+        output = (mean + torch.randn_like(mean) * std)
+        return output, mean, std
 
 
 class ImageDecoder(nn.Module):
@@ -185,7 +191,7 @@ class AECNF(nn.Module):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        z_t1 = self.image_encoder(input)
+        z_t1, mean, std = self.image_encoder(input)
         reconstructed = self.image_decoder(z_t1)
 
         logp_diff_t1 = torch.zeros(self.batch_size, 1).type(torch.float32).to(self.device)
@@ -202,7 +208,7 @@ class AECNF(nn.Module):
         logp_x = self.p_z0.log_prob(z_t0).to(self.device) - logp_diff_t0.view(-1)
         x_probs = logp_x.mean(0)
 
-        return reconstructed, x_probs
+        return reconstructed, x_probs, mean, std
 
     def generate(self, n_time_steps: int = 2) -> torch.Tensor:
         with torch.no_grad():
