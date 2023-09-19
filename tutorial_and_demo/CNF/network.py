@@ -164,7 +164,7 @@ class AECNF(nn.Module):
         condition_dim: int = 4,
         ode_t0: int = 0,
         ode_t1: int = 10,
-        cov_value: float = 1.0,
+        cov_value: float = 0.1,
         ode_hidden_dim: int = 64,
         ode_width: int = 64,
         dropout_ratio: float = 0.1,

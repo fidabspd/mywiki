@@ -22,6 +22,7 @@ def get_args():
     parser.add_argument("--latent_dim", type=int, default=2)
     parser.add_argument("--ode_t0", type=int, default=0)
     parser.add_argument("--ode_t1", type=int, default=10)
+    parser.add_argument("--cov_value", type=float, default=0.1)
     parser.add_argument("--ode_hidden_dim", type=int, default=32)
     parser.add_argument("--ode_width", type=int, default=32)
     parser.add_argument("--dropout_ratio", type=float, default=0.1)
@@ -176,6 +177,7 @@ def main(args):
         latent_dim=args.latent_dim,
         ode_t0=args.ode_t0,
         ode_t1=args.ode_t1,
+        cov_value=args.cov_value,
         ode_hidden_dim=args.ode_hidden_dim,
         ode_width=args.ode_width,
         dropout_ratio=args.dropout_ratio,
