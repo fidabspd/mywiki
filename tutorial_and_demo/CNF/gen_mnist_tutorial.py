@@ -13,13 +13,12 @@ def get_args():
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--n_epochs", type=int, default=100)
-    parser.add_argument("--eval_interval", type=int, default=200)
+    parser.add_argument("--eval_interval", type=int, default=20)
     parser.add_argument("--learning_rate", type=float, default=0.002)
 
-    parser.add_argument("--in_out_channels", type=int, default=1)
-    parser.add_argument("--hidden_channels", type=int, default=32)
-    parser.add_argument("--latent_dim", type=int, default=4)
-    parser.add_argument("--kernel_size", type=int, default=3)
+    parser.add_argument("--in_out_dim", type=int, default=784)
+    parser.add_argument("--hidden_dim", type=int, default=32)
+    parser.add_argument("--latent_dim", type=int, default=2)
     parser.add_argument("--ode_t0", type=int, default=0)
     parser.add_argument("--ode_t1", type=int, default=10)
     parser.add_argument("--ode_hidden_dim", type=int, default=32)
@@ -96,7 +95,7 @@ def train_and_evaluate(
 
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs, mean, std = model(image)
+            reconstructed, x_probs, mean, std = model(image, label)
 
             total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
             total_loss.backward()
@@ -126,13 +125,13 @@ def train_and_evaluate(
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs, mean, std = model(image)
+            reconstructed, x_probs, mean, std = model(image, label)
 
             total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
             break
 
         if viz:
-            z_t_samples, time_space = model.generate(n_viz_time_steps)
+            z_t_samples, time_space = model.generate(label[:1], n_viz_time_steps)
             visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
 
         return total_loss, recon_loss, kl_divergence, cnf_loss
@@ -158,11 +157,9 @@ def main(args):
 
     model = AECNF(
         batch_size=args.batch_size,
-        image_size=28,
-        in_out_channels=args.in_out_channels,
-        hidden_channels=args.hidden_channels,
+        in_out_dim=args.in_out_dim,
+        hidden_dim=args.hidden_dim,
         latent_dim=args.latent_dim,
-        kernel_size=args.kernel_size,
         ode_t0=args.ode_t0,
         ode_t1=args.ode_t1,
         ode_hidden_dim=args.ode_hidden_dim,
