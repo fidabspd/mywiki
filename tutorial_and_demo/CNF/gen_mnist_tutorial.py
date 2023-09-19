@@ -141,7 +141,7 @@ def train_and_evaluate(
             optimizer.step()
             optimizer.zero_grad()
 
-            step_pbar.set_description(f"[Train total loss: {total_loss:.2f}]")
+            step_pbar.set_description(f"[Global step: {global_step}, Train total loss: {total_loss:.2f}]")
 
             if global_step % eval_interval == 0:
                 eval_total_loss, eval_recon_loss, eval_kl_divergence, eval_cnf_loss = evaluate()
