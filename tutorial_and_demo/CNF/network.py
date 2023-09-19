@@ -28,7 +28,7 @@ class ImageEncoder(nn.Module):
         output = self.linear2(output)
         mean, std = torch.split(output, self.latent_dim, dim=1)
         std = torch.exp(std) + self.epsilon
-        output = (mean + torch.randn_like(mean) * std)
+        output = mean + torch.randn_like(mean) * std
         return output, mean, std
 
 
@@ -51,7 +51,7 @@ class ImageDecoder(nn.Module):
         output = self.dropout(torch.nn.functional.elu(self.linear0(input)))
         output = self.dropout(torch.tanh(self.linear1(output)))
         output = torch.sigmoid(self.linear2(output))
-        output = output.view(-1, 1, int(self.out_dim ** 0.5), int(self.out_dim ** 0.5))
+        output = output.view(-1, 1, int(self.out_dim**0.5), int(self.out_dim**0.5))
         return output
 
 
@@ -116,8 +116,8 @@ class TanhSigmoidMultiplyCondition(nn.Module):
         z = self.linear_latent(z)
         condition = self.linear_condition(condition)
         in_act = z + condition
-        t_act = torch.tanh(in_act[:, :self.latent_dim])
-        s_act = torch.sigmoid(in_act[:, self.latent_dim:])
+        t_act = torch.tanh(in_act[:, : self.latent_dim])
+        s_act = torch.sigmoid(in_act[:, self.latent_dim :])
         output = t_act * s_act
         return output
 
@@ -164,6 +164,7 @@ class AECNF(nn.Module):
         condition_dim: int = 4,
         ode_t0: int = 0,
         ode_t1: int = 10,
+        cov_value: float = 1.0,
         ode_hidden_dim: int = 64,
         ode_width: int = 64,
         dropout_ratio: float = 0.1,
@@ -178,7 +179,7 @@ class AECNF(nn.Module):
         # pdf of z0
         mean = torch.zeros(latent_dim).type(torch.float32)
         cov = torch.zeros(latent_dim, latent_dim).type(torch.float32)
-        cov.fill_diagonal_(0.1)
+        cov.fill_diagonal_(cov_value)
         self.p_z0 = torch.distributions.MultivariateNormal(
             loc=mean.to(self.device), covariance_matrix=cov.to(self.device)
         )
@@ -232,11 +233,11 @@ class AECNF(nn.Module):
 
             condition_embedding = self.condition_embedding_layer(condition)
 
-            time_space = np.linspace(self.t0, self.t1, n_time_steps)
+            time_space = np.linspace(self.t0, self.t1, n_time_steps)  # [T0, T1] for generation
             z_t_samples, _, condition_embedding = odeint(
                 self.ode_func,
                 (z_t0, logp_diff_t0, condition_embedding),
-                torch.tensor(time_space).to(self.device),  # [T0, T1] for generation
+                torch.tensor(time_space).to(self.device),
                 atol=1e-5,
                 rtol=1e-5,
                 method="dopri5",

@@ -1,6 +1,7 @@
 import os
 import argparse
 from tqdm import tqdm
+import numpy as np
 import torch
 import torchvision
 import matplotlib.pyplot as plt
@@ -58,11 +59,18 @@ def calculate_loss(
     return total_loss, recon_loss, kl_divergence, cnf_loss
 
 
-def visualize_inference_result(z_t_samples, time_space, save_dirpath, global_step):
+def visualize_inference_result(
+    z_t_samples: torch.Tensor,
+    condition: int,
+    time_space: np.array,
+    save_dirpath: str,
+    global_step: int,
+):
     if not os.path.exists(save_dirpath):
         os.makedirs(save_dirpath)
 
     fig, ax = plt.subplots(1, 11, figsize=(22, 1.8))
+    plt.suptitle(f"condition: {condition}", fontsize=17, y=1.15)
     for i in range(11):
         t = time_space[i]
         z_sample = z_t_samples[i].view(28, 28)
@@ -70,7 +78,7 @@ def visualize_inference_result(z_t_samples, time_space, save_dirpath, global_ste
         ax[i].set_axis_off()
         ax[i].set_title("$p(\mathbf{z}_{" + str(t) + "})$")
     save_filename = f"infer_{global_step}.png"
-    plt.savefig(os.path.join(save_dirpath, save_filename), dpi=300)
+    plt.savefig(os.path.join(save_dirpath, save_filename), dpi=300, bbox_inches="tight")
 
 
 def train_and_evaluate(
@@ -97,7 +105,9 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, x_probs, mean, std = model(image, label)
 
-            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
+            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(
+                image, reconstructed, x_probs, mean, std, cnf_loss_weight
+            )
             total_loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -127,12 +137,16 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, x_probs, mean, std = model(image, label)
 
-            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(image, reconstructed, x_probs, mean, std, cnf_loss_weight)
+            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(
+                image, reconstructed, x_probs, mean, std, cnf_loss_weight
+            )
             break
 
         if viz:
-            z_t_samples, time_space = model.generate(label[:1], n_viz_time_steps)
-            visualize_inference_result(z_t_samples, time_space, viz_save_dirpath, global_step)
+            condition = label[:1]
+            z_t_samples, time_space = model.generate(condition, n_viz_time_steps)
+            condition = condition[0].cpu().item()
+            visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
 
         return total_loss, recon_loss, kl_divergence, cnf_loss
 
