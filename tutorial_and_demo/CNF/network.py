@@ -154,6 +154,30 @@ class ODEFunc(nn.Module):
         return (dz_dt, dlogp_z_dt, condition)
 
 
+class Discriminator(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 1,
+        hidden_channels: int = 32,
+        kernel_size: int = 3,
+        stride: int = 1,
+    ) -> None:
+        super().__init__()
+        conv0 = nn.Conv2d(in_channels, hidden_channels, kernel_size, stride, padding="same")
+        conv1 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, stride, padding="same")
+        conv2 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, stride, padding="same")
+        self.conv_layers = nn.ModuleList([conv0, conv1, conv2])
+        self.post_layer = nn.Conv2d(hidden_channels, 1, kernel_size, stride)
+
+    def forward(self, input):
+        feature_maps = []
+        for layer in self.conv_layers:
+            input = layer(input)
+            feature_maps.append(input)
+        output = torch.sigmoid(self.post_layer(input))
+        return output, feature_maps
+
+
 class AECNF(nn.Module):
     def __init__(
         self,

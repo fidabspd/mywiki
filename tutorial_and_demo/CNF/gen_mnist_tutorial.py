@@ -41,6 +41,34 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def discriminator_loss(
+    real_output: torch.Tensor,
+    gen_output: torch.Tensor,
+):
+    real_loss = torch.log(real_output)
+    real_loss = real_loss.flatten(start_dim=1).sum(dim=1).mean()
+    gen_loss = torch.log(1 - gen_output)
+    gen_loss = gen_loss.flatten(start_dim=1).sum(dim=1).mean()
+    loss = -(real_loss + gen_loss)
+    return loss, real_loss, gen_loss
+
+
+def generator_loss(gen_output: torch.Tensor):
+    gen_loss = torch.log(gen_output)
+    gen_loss = gen_loss.flatten(start_dim=1).sum(dim=1).mean()
+    loss = -gen_loss
+    return loss, gen_loss
+
+
+def feature_map_loss(real_feature_maps: torch.Tensor, gen_feature_maps: torch.Tensor) -> torch.Tensor:
+    loss = 0
+    for real_feature_map, gen_feature_map in zip(real_feature_maps, gen_feature_maps):
+        real_feature_map = real_feature_map.flatten(start_dim=1)
+        gen_feature_map = gen_feature_map.flatten(start_dim=1)
+        loss += torch.abs(real_feature_map - gen_feature_map).sum(dim=1).mean()
+    return loss
+
+
 def calculate_loss(
     image_true: torch.Tensor,
     imgae_pred: torch.Tensor,
