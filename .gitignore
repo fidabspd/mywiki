@@ -9,4 +9,5 @@ tmp*
 
 tutorial_and_demo/CNF/results
 tutorial_and_demo/CNF/.data
+tutorial_and_demo/CNF/logs
 tutorial_and_demo/CNF/cnf_mnist_viz_result
