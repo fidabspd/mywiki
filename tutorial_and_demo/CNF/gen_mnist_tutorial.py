@@ -6,6 +6,7 @@ from tqdm import tqdm
 import numpy as np
 import torch
 import torchvision
+from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 
 from network import AECNF, Discriminator
@@ -30,7 +31,7 @@ def get_args():
     parser.add_argument("--ode_width", type=int, default=32)
     parser.add_argument("--dropout_ratio", type=float, default=0.1)
 
-    parser.add_argument("--gan_feature_map_loss_weigth", type=float, default=1.0)
+    parser.add_argument("--disc_fake_feature_map_loss_weigth", type=float, default=1.0)
     parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
     parser.add_argument("--vae_loss_weight", type=float, default=1.0)
     parser.add_argument("--cnf_loss_weight", type=float, default=1.0)
@@ -61,6 +62,13 @@ def get_logger(log_dirpath: str, log_filename: str = "training_log.log"):
     return logger
 
 
+def add_tensorboard_items(writer, global_step, scalars={}, images={}):
+    for k, v in scalars.items():
+        writer.add_scalar(k, v, global_step)
+    for k, v in images.items():
+        writer.add_image(k, v, global_step, dataformats="HWC")
+
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -84,13 +92,13 @@ def calculate_gan_generator_loss(disc_pred_output: torch.Tensor) -> torch.Tensor
     return gan_generator_loss, disc_fake_pred_loss
 
 
-def calculate_gan_feature_map_loss(
+def calculate_disc_fake_feature_map_loss(
     disc_true_feature_maps: torch.Tensor, disc_pred_feature_maps: torch.Tensor
 ) -> torch.Tensor:
-    gan_feature_map_loss = 0
+    disc_fake_feature_map_loss = 0
     for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):
-        gan_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).mean()
-    return gan_feature_map_loss
+        disc_fake_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).mean()
+    return disc_fake_feature_map_loss
 
 
 def calculate_vae_loss(
@@ -136,18 +144,18 @@ def calculate_final_generator_loss(
     mean: torch.Tensor,
     std: torch.Tensor,
     cnf_probs: torch.Tensor,
-    gan_feature_map_loss_weigth: float = 1.0,
+    disc_fake_feature_map_loss_weigth: float = 1.0,
     gan_generator_loss_weight: float = 1.0,
     vae_loss_weight: float = 1.0,
     cnf_loss_weight: float = 1.0,
     return_only_final_loss: bool = True,
 ):
-    gan_feature_map_loss = calculate_gan_feature_map_loss(disc_true_feature_maps, disc_pred_feature_maps)
+    disc_fake_feature_map_loss = calculate_disc_fake_feature_map_loss(disc_true_feature_maps, disc_pred_feature_maps)
     gan_generator_loss, disc_fake_pred_loss = calculate_gan_generator_loss(disc_pred_output)
     vae_loss, recon_loss, kl_divergence = calculate_vae_loss(image_true, imgae_pred, mean, std)
     cnf_loss, cnf_probs = calculate_cnf_loss(cnf_probs)
     final_generator_loss = (
-        gan_feature_map_loss_weigth * gan_feature_map_loss
+        disc_fake_feature_map_loss_weigth * disc_fake_feature_map_loss
         + gan_generator_loss_weight * gan_generator_loss
         + vae_loss_weight * vae_loss
         + cnf_loss_weight * cnf_loss
@@ -155,7 +163,14 @@ def calculate_final_generator_loss(
     if return_only_final_loss:
         return final_generator_loss
     else:
-        return final_generator_loss, gan_feature_map_loss, disc_fake_pred_loss, recon_loss, kl_divergence, cnf_probs
+        return (
+            final_generator_loss,
+            disc_fake_feature_map_loss,
+            disc_fake_pred_loss,
+            recon_loss,
+            kl_divergence,
+            cnf_probs,
+        )
 
 
 def visualize_inference_result(
@@ -178,6 +193,7 @@ def visualize_inference_result(
         ax[i].set_title("$p(\mathbf{z}_{" + str(t) + "})$")
     save_filename = f"infer_{global_step}.png"
     plt.savefig(os.path.join(save_dirpath, save_filename), dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 def train_and_evaluate(
@@ -190,14 +206,16 @@ def train_and_evaluate(
     n_epochs: int = 100,
     log_interval: int = 20,
     eval_interval: int = 200,
-    gan_feature_map_loss_weigth: float = 1.0,
+    disc_fake_feature_map_loss_weigth: float = 1.0,
     gan_generator_loss_weight: float = 1.0,
     vae_loss_weight: float = 1.0,
     cnf_loss_weight: float = 1.0,
     viz: bool = True,
     n_viz_time_steps: int = 11,
     viz_save_dirpath: str = "./cnf_mnist_viz_result/",
-    logger: logging = None
+    logger: logging = None,
+    tensorabord_train_writer: SummaryWriter = None,
+    tensorabord_eval_writer: SummaryWriter = None,
 ):
     def train_and_evaluate_one_epoch():
         nonlocal global_step
@@ -232,7 +250,14 @@ def train_and_evaluate(
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed)
 
             # backward generator
-            final_generator_loss, gan_feature_map_loss, disc_fake_pred_loss, recon_loss, kl_divergence, cnf_probs = calculate_final_generator_loss(
+            (
+                final_generator_loss,
+                disc_fake_feature_map_loss,
+                disc_fake_pred_loss,
+                recon_loss,
+                kl_divergence,
+                cnf_probs,
+            ) = calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -241,7 +266,7 @@ def train_and_evaluate(
                 mean=mean,
                 std=std,
                 cnf_probs=cnf_probs,
-                gan_feature_map_loss_weigth=gan_feature_map_loss_weigth,
+                disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
                 cnf_loss_weight=cnf_loss_weight,
@@ -257,16 +282,34 @@ def train_and_evaluate(
             )
 
             if global_step % log_interval == 0:
+                # text logging
                 _info = ""
                 _info += f"\n=== Global step: {global_step} ==="
                 _info += f"\nTraining Loss"
                 _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss:.2f}"
                 _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss:.2f}, disc_real_pred_loss: {disc_real_pred_loss:.2f}"
                 _info += f"\n\tfinal_generator_loss: {final_generator_loss:.2f}"
-                _info += f"\n\t\tgan_feature_map_loss: {gan_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
-                _info += f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_probs: {cnf_probs:.2f}\n"
+                _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
+                _info += (
+                    f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_probs: {cnf_probs:.2f}\n"
+                )
                 if logger is not None:
                     logger.info(_info)
+
+                # tensorboard logging
+                scalar_dict = {}
+                scalar_dict.update({"final_discriminator_loss": final_discriminator_loss})
+                scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": disc_real_true_loss})
+                scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": disc_real_pred_loss})
+                scalar_dict.update({"final_generator_loss": final_generator_loss})
+                scalar_dict.update({"final_generator_loss/disc_fake_feature_map_loss": disc_fake_feature_map_loss})
+                scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": disc_fake_pred_loss})
+                scalar_dict.update({"final_generator_loss/recon_loss": recon_loss})
+                scalar_dict.update({"final_generator_loss/kl_divergence": kl_divergence})
+                scalar_dict.update({"final_generator_loss/cnf_probs": cnf_probs})
+                if tensorabord_train_writer is not None:
+                    for k, v in scalar_dict.items():
+                        tensorabord_train_writer.add_scalar(k, v, global_step)
 
             if global_step % eval_interval == 0:
                 evaluate()
@@ -280,10 +323,19 @@ def train_and_evaluate(
             disc_true_output, disc_true_feature_maps = discriminator(image)
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
-            eval_final_discriminator_loss, eval_disc_real_true_loss, eval_disc_real_pred_loss = calculate_final_discriminator_loss(
-                disc_true_output, disc_pred_output, return_only_final_loss=False
-            )
-            eval_final_generator_loss, eval_gan_feature_map_loss, eval_disc_fake_pred_loss, eval_recon_loss, eval_kl_divergence, eval_cnf_probs = calculate_final_generator_loss(
+            (
+                eval_final_discriminator_loss,
+                eval_disc_real_true_loss,
+                eval_disc_real_pred_loss,
+            ) = calculate_final_discriminator_loss(disc_true_output, disc_pred_output, return_only_final_loss=False)
+            (
+                eval_final_generator_loss,
+                eval_disc_fake_feature_map_loss,
+                eval_disc_fake_pred_loss,
+                eval_recon_loss,
+                eval_kl_divergence,
+                eval_cnf_probs,
+            ) = calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -292,7 +344,7 @@ def train_and_evaluate(
                 mean=mean,
                 std=std,
                 cnf_probs=cnf_probs,
-                gan_feature_map_loss_weigth=gan_feature_map_loss_weigth,
+                disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
                 cnf_loss_weight=cnf_loss_weight,
@@ -300,17 +352,34 @@ def train_and_evaluate(
             )
             break
 
+        # text logging
         _info = ""
         _info += f"\n=== Global step: {global_step} ==="
-        _info += f"\n=== Evaluation Loss ==="
+        _info += f"\nEvaluation Loss"
         _info += f"\n\tfinal_discriminator_loss: {eval_final_discriminator_loss:.2f}"
         _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss:.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss:.2f}"
         _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss:.2f}"
-        _info += f"\n\t\tgan_feature_map_loss: {eval_gan_feature_map_loss:.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss:.2f}"
+        _info += f"\n\t\tdisc_fake_feature_map_loss: {eval_disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss:.2f}"
         _info += f", recon_loss: {eval_recon_loss:.2f}, kl_divergence: {eval_kl_divergence:.2f}, cnf_probs: {eval_cnf_probs:.2f}\n"
         if logger is not None:
             logger.info(_info)
 
+        # tensorboard logging
+        scalar_dict = {}
+        scalar_dict.update({"final_discriminator_loss": eval_final_discriminator_loss})
+        scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": eval_disc_real_true_loss})
+        scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": eval_disc_real_pred_loss})
+        scalar_dict.update({"final_generator_loss": eval_final_generator_loss})
+        scalar_dict.update({"final_generator_loss/disc_fake_feature_map_loss": eval_disc_fake_feature_map_loss})
+        scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": eval_disc_fake_pred_loss})
+        scalar_dict.update({"final_generator_loss/recon_loss": eval_recon_loss})
+        scalar_dict.update({"final_generator_loss/kl_divergence": eval_kl_divergence})
+        scalar_dict.update({"final_generator_loss/cnf_probs": eval_cnf_probs})
+        if tensorabord_eval_writer is not None:
+            for k, v in scalar_dict.items():
+                tensorabord_eval_writer.add_scalar(k, v, global_step)
+
+        # visualization
         if viz:
             condition = label[:1]
             z_t_samples, time_space = generator.generate(condition, n_viz_time_steps)
@@ -327,6 +396,9 @@ def train_and_evaluate(
 
 def main(args):
     logger = get_logger(args.log_dirpath)
+    tensorboard_train_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "train"))
+    tensorboard_eval_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "eval"))
+
     mnist_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
     train_ds = torchvision.datasets.MNIST(args.data_dirpath, transform=mnist_transform, train=True, download=True)
     train_dl = torch.utils.data.DataLoader(
@@ -372,7 +444,7 @@ def main(args):
         n_epochs=args.n_epochs,
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
-        gan_feature_map_loss_weigth=args.gan_feature_map_loss_weigth,
+        disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
         gan_generator_loss_weight=args.gan_generator_loss_weight,
         vae_loss_weight=args.vae_loss_weight,
         cnf_loss_weight=args.cnf_loss_weight,
@@ -380,6 +452,8 @@ def main(args):
         n_viz_time_steps=args.n_viz_time_steps,
         viz_save_dirpath=args.viz_save_dirpath,
         logger=logger,
+        tensorabord_train_writer=tensorboard_train_writer,
+        tensorabord_eval_writer=tensorboard_eval_writer,
     )
 
 
