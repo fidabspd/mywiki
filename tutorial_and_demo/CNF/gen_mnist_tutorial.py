@@ -89,9 +89,7 @@ def calculate_gan_feature_map_loss(
 ) -> torch.Tensor:
     gan_feature_map_loss = 0
     for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):
-        disc_true_feature_map = disc_true_feature_map.flatten(start_dim=1)
-        disc_pred_feature_map = disc_pred_feature_map.flatten(start_dim=1)
-        gan_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).sum(dim=1).mean()
+        gan_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).mean()
     return gan_feature_map_loss
 
 
