@@ -7,9 +7,10 @@ import numpy as np
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
-import matplotlib.pyplot as plt
 
+import utils
 from network import AECNF, Discriminator
+import losses
 
 
 def get_args():
@@ -43,157 +44,6 @@ def get_args():
 
     parser.add_argument("--device", type=str, default="cuda:0")
     return parser.parse_args()
-
-
-def get_logger(log_dirpath: str, log_filename: str = "training_log.log"):
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-    logger = logging
-    logger = logging.getLogger(os.path.basename(log_dirpath))
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s")
-
-    if not os.path.exists(log_dirpath):
-        os.makedirs(log_dirpath)
-    file_handler = logging.FileHandler(os.path.join(log_dirpath, log_filename))
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
-
-
-def add_tensorboard_items(writer, global_step, scalars={}, images={}):
-    for k, v in scalars.items():
-        writer.add_scalar(k, v, global_step)
-    for k, v in images.items():
-        writer.add_image(k, v, global_step, dataformats="HWC")
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-def calculate_gan_discriminator_loss(
-    disc_true_output: torch.Tensor,
-    disc_pred_output: torch.Tensor,
-) -> torch.Tensor:
-    disc_real_true_loss = torch.log(disc_true_output)
-    disc_real_true_loss = disc_real_true_loss.flatten(start_dim=1).sum(dim=1).mean()
-    disc_pred_true_loss = torch.log(1 - disc_pred_output)
-    disc_pred_true_loss = disc_pred_true_loss.flatten(start_dim=1).sum(dim=1).mean()
-    gan_discriminator_loss = -(disc_real_true_loss + disc_pred_true_loss)
-    return gan_discriminator_loss, disc_real_true_loss, disc_pred_true_loss
-
-
-def calculate_gan_generator_loss(disc_pred_output: torch.Tensor) -> torch.Tensor:
-    disc_fake_pred_loss = torch.log(disc_pred_output)
-    disc_fake_pred_loss = disc_fake_pred_loss.flatten(start_dim=1).sum(dim=1).mean()
-    gan_generator_loss = -disc_fake_pred_loss
-    return gan_generator_loss, disc_fake_pred_loss
-
-
-def calculate_disc_fake_feature_map_loss(
-    disc_true_feature_maps: torch.Tensor, disc_pred_feature_maps: torch.Tensor
-) -> torch.Tensor:
-    disc_fake_feature_map_loss = 0
-    for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):
-        disc_fake_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).mean()
-    return disc_fake_feature_map_loss
-
-
-def calculate_vae_loss(
-    image_true: torch.Tensor,
-    imgae_pred: torch.Tensor,
-    mean: torch.Tensor,
-    std: torch.Tensor,
-) -> torch.Tensor:
-    recon_loss = image_true * torch.log(imgae_pred) + (1 - image_true) * torch.log(1 - imgae_pred)
-    recon_loss = torch.flatten(recon_loss, start_dim=1).sum(dim=1).mean()
-    kl_divergence = torch.square(mean) + torch.square(std) - torch.log(torch.square(std)) - 1
-    kl_divergence = 0.5 * torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
-    elbo = recon_loss - kl_divergence
-    loss = -elbo
-    return loss, recon_loss, kl_divergence
-
-
-def calculate_cnf_loss(x_probs: torch.Tensor) -> torch.Tensor:
-    loss = -x_probs
-    return loss, x_probs
-
-
-def calculate_final_discriminator_loss(
-    disc_true_output: torch.Tensor,
-    disc_pred_output: torch.Tensor,
-    return_only_final_loss: bool = True,
-) -> torch.Tensor:
-    final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss = calculate_gan_discriminator_loss(
-        disc_true_output, disc_pred_output
-    )
-    if return_only_final_loss:
-        return final_discriminator_loss
-    else:
-        return final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss
-
-
-def calculate_final_generator_loss(
-    image_true: torch.Tensor,
-    imgae_pred: torch.Tensor,
-    disc_pred_output: torch.Tensor,
-    disc_true_feature_maps: torch.Tensor,
-    disc_pred_feature_maps: torch.Tensor,
-    mean: torch.Tensor,
-    std: torch.Tensor,
-    cnf_probs: torch.Tensor,
-    disc_fake_feature_map_loss_weigth: float = 1.0,
-    gan_generator_loss_weight: float = 1.0,
-    vae_loss_weight: float = 1.0,
-    cnf_loss_weight: float = 1.0,
-    return_only_final_loss: bool = True,
-):
-    disc_fake_feature_map_loss = calculate_disc_fake_feature_map_loss(disc_true_feature_maps, disc_pred_feature_maps)
-    gan_generator_loss, disc_fake_pred_loss = calculate_gan_generator_loss(disc_pred_output)
-    vae_loss, recon_loss, kl_divergence = calculate_vae_loss(image_true, imgae_pred, mean, std)
-    cnf_loss, cnf_probs = calculate_cnf_loss(cnf_probs)
-    final_generator_loss = (
-        disc_fake_feature_map_loss_weigth * disc_fake_feature_map_loss
-        + gan_generator_loss_weight * gan_generator_loss
-        + vae_loss_weight * vae_loss
-        + cnf_loss_weight * cnf_loss
-    )
-    if return_only_final_loss:
-        return final_generator_loss
-    else:
-        return (
-            final_generator_loss,
-            disc_fake_feature_map_loss,
-            disc_fake_pred_loss,
-            recon_loss,
-            kl_divergence,
-            cnf_probs,
-        )
-
-
-def visualize_inference_result(
-    z_t_samples: torch.Tensor,
-    condition: int,
-    time_space: np.array,
-    save_dirpath: str,
-    global_step: int,
-):
-    if not os.path.exists(save_dirpath):
-        os.makedirs(save_dirpath)
-
-    fig, ax = plt.subplots(1, 11, figsize=(22, 1.8))
-    plt.suptitle(f"condition: {condition}", fontsize=17, y=1.15)
-    for i in range(11):
-        t = time_space[i]
-        z_sample = z_t_samples[i].view(28, 28)
-        ax[i].imshow(z_sample.detach().cpu())
-        ax[i].set_axis_off()
-        ax[i].set_title("$p(\mathbf{z}_{" + str(t) + "})$")
-    save_filename = f"infer_{global_step}.png"
-    plt.savefig(os.path.join(save_dirpath, save_filename), dpi=300, bbox_inches="tight")
-    plt.close()
 
 
 def train_and_evaluate(
@@ -238,7 +88,11 @@ def train_and_evaluate(
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
             # backward discriminator
-            final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss = calculate_final_discriminator_loss(
+            (
+                final_discriminator_loss,
+                disc_real_true_loss,
+                disc_real_pred_loss,
+            ) = losses.calculate_final_discriminator_loss(
                 disc_true_output, disc_pred_output, return_only_final_loss=False
             )
             final_discriminator_loss.backward()
@@ -257,7 +111,7 @@ def train_and_evaluate(
                 recon_loss,
                 kl_divergence,
                 cnf_probs,
-            ) = calculate_final_generator_loss(
+            ) = losses.calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -327,7 +181,9 @@ def train_and_evaluate(
                 eval_final_discriminator_loss,
                 eval_disc_real_true_loss,
                 eval_disc_real_pred_loss,
-            ) = calculate_final_discriminator_loss(disc_true_output, disc_pred_output, return_only_final_loss=False)
+            ) = losses.calculate_final_discriminator_loss(
+                disc_true_output, disc_pred_output, return_only_final_loss=False
+            )
             (
                 eval_final_generator_loss,
                 eval_disc_fake_feature_map_loss,
@@ -335,7 +191,7 @@ def train_and_evaluate(
                 eval_recon_loss,
                 eval_kl_divergence,
                 eval_cnf_probs,
-            ) = calculate_final_generator_loss(
+            ) = losses.calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -384,7 +240,7 @@ def train_and_evaluate(
             condition = label[:1]
             z_t_samples, time_space = generator.generate(condition, n_viz_time_steps)
             condition = condition[0].cpu().item()
-            visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
+            utils.visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
 
     global_step = -1
 
@@ -395,7 +251,7 @@ def train_and_evaluate(
 
 
 def main(args):
-    logger = get_logger(args.log_dirpath)
+    logger = utils.get_logger(args.log_dirpath)
     tensorboard_train_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "train"))
     tensorboard_eval_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "eval"))
 
@@ -428,8 +284,8 @@ def main(args):
         kernel_size=3,
         stride=1,
     ).to(args.device)
-    generator_n_params = count_parameters(generator)
-    discriminator_n_params = count_parameters(discriminator)
+    generator_n_params = utils.count_parameters(generator)
+    discriminator_n_params = utils.count_parameters(discriminator)
     print(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
     optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=args.learning_rate)
