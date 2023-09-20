@@ -8,6 +8,6 @@ __pycache__
 tmp*
 
 tutorial_and_demo/CNF/results
-tutorial_and_demo/CNF/.data
-tutorial_and_demo/CNF/logs
-tutorial_and_demo/CNF/cnf_mnist_viz_result
+tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/.data
+tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/logs
+tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/cnf_mnist_viz_result
