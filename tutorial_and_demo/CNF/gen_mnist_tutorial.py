@@ -6,7 +6,7 @@ import torch
 import torchvision
 import matplotlib.pyplot as plt
 
-from network import AECNF
+from network import AECNF, Discriminator
 
 
 def get_args():
@@ -27,7 +27,10 @@ def get_args():
     parser.add_argument("--ode_width", type=int, default=32)
     parser.add_argument("--dropout_ratio", type=float, default=0.1)
 
-    parser.add_argument("--cnf_loss_weight", type=float, default=1.5)
+    parser.add_argument("--gan_feature_map_loss_weigth", type=float, default=1.0)
+    parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
+    parser.add_argument("--vae_loss_weight", type=float, default=1.0)
+    parser.add_argument("--cnf_loss_weight", type=float, default=1.0)
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
@@ -60,7 +63,9 @@ def calculate_gan_generator_loss(disc_pred_output: torch.Tensor) -> torch.Tensor
     return gan_generator_loss, disc_fake_pred_loss
 
 
-def calculate_gan_feature_map_loss(disc_true_feature_maps: torch.Tensor, disc_pred_feature_maps: torch.Tensor) -> torch.Tensor:
+def calculate_gan_feature_map_loss(
+    disc_true_feature_maps: torch.Tensor, disc_pred_feature_maps: torch.Tensor
+) -> torch.Tensor:
     gan_feature_map_loss = 0
     for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):
         disc_true_feature_map = disc_true_feature_map.flatten(start_dim=1)
@@ -94,7 +99,9 @@ def calculate_final_discriminator_loss(
     disc_pred_output: torch.Tensor,
     return_only_final_loss: bool = True,
 ) -> torch.Tensor:
-    final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss = calculate_gan_discriminator_loss(disc_true_output, disc_pred_output)
+    final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss = calculate_gan_discriminator_loss(
+        disc_true_output, disc_pred_output
+    )
     if return_only_final_loss:
         return final_discriminator_loss
     else:
@@ -155,13 +162,18 @@ def visualize_inference_result(
 
 
 def train_and_evaluate(
-    model: torch.nn.Module,
-    optimizer: torch.optim,
+    generator: torch.nn.Module,
+    discriminator: torch.nn.Module,
+    optimizer_generator: torch.optim,
+    optimizer_discriminator: torch.optim,
     train_dl: torch.utils.data.DataLoader,
     eval_dl: torch.utils.data.DataLoader,
     n_epochs: int = 100,
     eval_interval: int = 200,
-    cnf_loss_weight: float = 3.0,
+    gan_feature_map_loss_weigth: float = 1.0,
+    gan_generator_loss_weight: float = 1.0,
+    vae_loss_weight: float = 1.0,
+    cnf_loss_weight: float = 1.0,
     viz: bool = True,
     n_viz_time_steps: int = 11,
     viz_save_dirpath: str = "./cnf_mnist_viz_result/",
@@ -172,56 +184,107 @@ def train_and_evaluate(
         step_pbar = tqdm(train_dl)
         for batch in step_pbar:
             global_step += 1
-            model.train()
+            generator.train()
+            discriminator.train()
 
+            # batch data
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs, mean, std = model(image, label)
 
-            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(
-                image, reconstructed, x_probs, mean, std, cnf_loss_weight
+            # forward generator
+            reconstructed, cnf_probs, mean, std = generator(image, label)
+
+            # forward discriminator
+            disc_true_output, disc_true_feature_maps = discriminator(image)
+            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
+
+            # backward discriminator
+            final_discriminator_loss = calculate_final_discriminator_loss(
+                disc_true_output, disc_pred_output, return_only_final_loss=True
             )
-            total_loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+            final_discriminator_loss.backward()
+            optimizer_discriminator.step()
+            optimizer_discriminator.zero_grad()
 
-            step_pbar.set_description(f"[Global step: {global_step}, Train total loss: {total_loss:.2f}]")
+            # forward discriminator
+            disc_true_output, disc_true_feature_maps = discriminator(image)
+            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed)
+
+            # backward generator
+            final_generator_loss = calculate_final_generator_loss(
+                image_true=image,
+                imgae_pred=reconstructed,
+                disc_pred_output=disc_pred_output,
+                disc_true_feature_maps=disc_true_feature_maps,
+                disc_pred_feature_maps=disc_pred_feature_maps,
+                mean=mean,
+                std=std,
+                cnf_probs=cnf_probs,
+                gan_feature_map_loss_weigth=gan_feature_map_loss_weigth,
+                gan_generator_loss_weight=gan_generator_loss_weight,
+                vae_loss_weight=vae_loss_weight,
+                cnf_loss_weight=cnf_loss_weight,
+                return_only_final_loss=True,
+            )
+            final_generator_loss.backward()
+            optimizer_generator.step()
+            optimizer_generator.zero_grad()
+
+            # result of step
+            step_pbar.set_description(
+                f"[Global step: {global_step}, Discriminator loss: {final_discriminator_loss:.2f}, Generator loss: {final_generator_loss:.2f}]"
+            )
 
             if global_step % eval_interval == 0:
-                eval_total_loss, eval_recon_loss, eval_kl_divergence, eval_cnf_loss = evaluate()
+                eval_final_discriminator_loss, eval_final_generator_loss = evaluate()
                 print(f"\n\n\n[Global step: {global_step}]")
                 print(
                     "train loss:",
-                    f"total_loss: {total_loss}, recon_loss: {recon_loss}, kl_divergence: {kl_divergence}, cnf_loss: {cnf_loss}",
+                    f"Discriminator loss: {final_discriminator_loss:.2f}, Generator loss: {final_generator_loss:.2f}",
                     sep="\n\t",
                 )
                 print(
                     "eval loss:",
-                    f"total_loss: {eval_total_loss}, recon_loss: {eval_recon_loss}, kl_divergence: {eval_kl_divergence}, cnf_loss: {eval_cnf_loss}",
+                    f"Discriminator loss: {eval_final_discriminator_loss:.2f}, Generator loss: {eval_final_generator_loss:.2f}",
                     sep="\n\t",
                 )
 
     def evaluate():
-        model.eval()
-        # eval_step_pbar = tqdm(eval_dl)
-        # for batch in eval_step_pbar:
+        generator.eval()
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, x_probs, mean, std = model(image, label)
+            reconstructed, cnf_probs, mean, std = generator(image, label)
+            disc_true_output, disc_true_feature_maps = discriminator(image)
+            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
-            total_loss, recon_loss, kl_divergence, cnf_loss = calculate_loss(
-                image, reconstructed, x_probs, mean, std, cnf_loss_weight
+            final_discriminator_loss = calculate_final_discriminator_loss(
+                disc_true_output, disc_pred_output, return_only_final_loss=True
+            )
+            final_generator_loss = calculate_final_generator_loss(
+                image_true=image,
+                imgae_pred=reconstructed,
+                disc_pred_output=disc_pred_output,
+                disc_true_feature_maps=disc_true_feature_maps,
+                disc_pred_feature_maps=disc_pred_feature_maps,
+                mean=mean,
+                std=std,
+                cnf_probs=cnf_probs,
+                gan_feature_map_loss_weigth=gan_feature_map_loss_weigth,
+                gan_generator_loss_weight=gan_generator_loss_weight,
+                vae_loss_weight=vae_loss_weight,
+                cnf_loss_weight=cnf_loss_weight,
+                return_only_final_loss=True,
             )
             break
 
         if viz:
             condition = label[:1]
-            z_t_samples, time_space = model.generate(condition, n_viz_time_steps)
+            z_t_samples, time_space = generator.generate(condition, n_viz_time_steps)
             condition = condition[0].cpu().item()
             visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
 
-        return total_loss, recon_loss, kl_divergence, cnf_loss
+        return final_discriminator_loss, final_generator_loss
 
     global_step = -1
 
@@ -242,7 +305,7 @@ def main(args):
         drop_last=True,
     )
 
-    model = AECNF(
+    generator = AECNF(
         batch_size=args.batch_size,
         in_out_dim=args.in_out_dim,
         hidden_dim=args.hidden_dim,
@@ -255,17 +318,30 @@ def main(args):
         dropout_ratio=args.dropout_ratio,
         device=args.device,
     ).to(args.device)
-    n_params = count_parameters(model)
-    print(f"n_params: {n_params}")
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    discriminator = Discriminator(
+        in_channels=1,
+        hidden_channels=32,
+        kernel_size=3,
+        stride=1,
+    ).to(args.device)
+    generator_n_params = count_parameters(generator)
+    discriminator_n_params = count_parameters(discriminator)
+    print(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
+    optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
+    optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=args.learning_rate)
 
     train_and_evaluate(
-        model=model,
-        optimizer=optimizer,
+        generator=generator,
+        discriminator=discriminator,
+        optimizer_generator=optimizer_generator,
+        optimizer_discriminator=optimizer_discriminator,
         train_dl=train_dl,
         eval_dl=train_dl,
         n_epochs=args.n_epochs,
         eval_interval=args.eval_interval,
+        gan_feature_map_loss_weigth=args.gan_feature_map_loss_weigth,
+        gan_generator_loss_weight=args.gan_generator_loss_weight,
+        vae_loss_weight=args.vae_loss_weight,
         cnf_loss_weight=args.cnf_loss_weight,
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
