@@ -1,5 +1,7 @@
 import os
 import argparse
+import logging
+import sys
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -14,6 +16,7 @@ def get_args():
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--n_epochs", type=int, default=100)
+    parser.add_argument("--log_interval", type=int, default=20)
     parser.add_argument("--eval_interval", type=int, default=20)
     parser.add_argument("--learning_rate", type=float, default=0.002)
 
@@ -35,9 +38,27 @@ def get_args():
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
     parser.add_argument("--viz_save_dirpath", type=str, default="./cnf_mnist_viz_result/")
+    parser.add_argument("--log_dirpath", type=str, default="./logs/")
 
     parser.add_argument("--device", type=str, default="cuda:0")
     return parser.parse_args()
+
+
+def get_logger(log_dirpath: str, log_filename: str = "training_log.log"):
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+    logger = logging
+    logger = logging.getLogger(os.path.basename(log_dirpath))
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s")
+
+    if not os.path.exists(log_dirpath):
+        os.makedirs(log_dirpath)
+    file_handler = logging.FileHandler(os.path.join(log_dirpath, log_filename))
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger
 
 
 def count_parameters(model):
@@ -169,6 +190,7 @@ def train_and_evaluate(
     train_dl: torch.utils.data.DataLoader,
     eval_dl: torch.utils.data.DataLoader,
     n_epochs: int = 100,
+    log_interval: int = 20,
     eval_interval: int = 200,
     gan_feature_map_loss_weigth: float = 1.0,
     gan_generator_loss_weight: float = 1.0,
@@ -177,6 +199,7 @@ def train_and_evaluate(
     viz: bool = True,
     n_viz_time_steps: int = 11,
     viz_save_dirpath: str = "./cnf_mnist_viz_result/",
+    logger: logging = None
 ):
     def train_and_evaluate_one_epoch():
         nonlocal global_step
@@ -199,8 +222,8 @@ def train_and_evaluate(
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
             # backward discriminator
-            final_discriminator_loss = calculate_final_discriminator_loss(
-                disc_true_output, disc_pred_output, return_only_final_loss=True
+            final_discriminator_loss, disc_real_true_loss, disc_real_pred_loss = calculate_final_discriminator_loss(
+                disc_true_output, disc_pred_output, return_only_final_loss=False
             )
             final_discriminator_loss.backward()
             optimizer_discriminator.step()
@@ -211,7 +234,7 @@ def train_and_evaluate(
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed)
 
             # backward generator
-            final_generator_loss = calculate_final_generator_loss(
+            final_generator_loss, gan_feature_map_loss, disc_fake_pred_loss, recon_loss, kl_divergence, cnf_probs = calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -224,7 +247,7 @@ def train_and_evaluate(
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
                 cnf_loss_weight=cnf_loss_weight,
-                return_only_final_loss=True,
+                return_only_final_loss=False,
             )
             final_generator_loss.backward()
             optimizer_generator.step()
@@ -235,19 +258,20 @@ def train_and_evaluate(
                 f"[Global step: {global_step}, Discriminator loss: {final_discriminator_loss:.2f}, Generator loss: {final_generator_loss:.2f}]"
             )
 
+            if global_step % log_interval == 0:
+                _info = ""
+                _info += f"\n=== Global step: {global_step} ==="
+                _info += f"\nTraining Loss"
+                _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss:.2f}"
+                _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss:.2f}, disc_real_pred_loss: {disc_real_pred_loss:.2f}"
+                _info += f"\n\tfinal_generator_loss: {final_generator_loss:.2f}"
+                _info += f"\n\t\tgan_feature_map_loss: {gan_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
+                _info += f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_probs: {cnf_probs:.2f}\n"
+                if logger is not None:
+                    logger.info(_info)
+
             if global_step % eval_interval == 0:
-                eval_final_discriminator_loss, eval_final_generator_loss = evaluate()
-                print(f"\n\n\n[Global step: {global_step}]")
-                print(
-                    "train loss:",
-                    f"Discriminator loss: {final_discriminator_loss:.2f}, Generator loss: {final_generator_loss:.2f}",
-                    sep="\n\t",
-                )
-                print(
-                    "eval loss:",
-                    f"Discriminator loss: {eval_final_discriminator_loss:.2f}, Generator loss: {eval_final_generator_loss:.2f}",
-                    sep="\n\t",
-                )
+                evaluate()
 
     def evaluate():
         generator.eval()
@@ -258,10 +282,10 @@ def train_and_evaluate(
             disc_true_output, disc_true_feature_maps = discriminator(image)
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
-            final_discriminator_loss = calculate_final_discriminator_loss(
-                disc_true_output, disc_pred_output, return_only_final_loss=True
+            eval_final_discriminator_loss, eval_disc_real_true_loss, eval_disc_real_pred_loss = calculate_final_discriminator_loss(
+                disc_true_output, disc_pred_output, return_only_final_loss=False
             )
-            final_generator_loss = calculate_final_generator_loss(
+            eval_final_generator_loss, eval_gan_feature_map_loss, eval_disc_fake_pred_loss, eval_recon_loss, eval_kl_divergence, eval_cnf_probs = calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -274,17 +298,26 @@ def train_and_evaluate(
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
                 cnf_loss_weight=cnf_loss_weight,
-                return_only_final_loss=True,
+                return_only_final_loss=False,
             )
             break
+
+        _info = ""
+        _info += f"\n=== Global step: {global_step} ==="
+        _info += f"\n=== Evaluation Loss ==="
+        _info += f"\n\tfinal_discriminator_loss: {eval_final_discriminator_loss:.2f}"
+        _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss:.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss:.2f}"
+        _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss:.2f}"
+        _info += f"\n\t\tgan_feature_map_loss: {eval_gan_feature_map_loss:.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss:.2f}"
+        _info += f", recon_loss: {eval_recon_loss:.2f}, kl_divergence: {eval_kl_divergence:.2f}, cnf_probs: {eval_cnf_probs:.2f}\n"
+        if logger is not None:
+            logger.info(_info)
 
         if viz:
             condition = label[:1]
             z_t_samples, time_space = generator.generate(condition, n_viz_time_steps)
             condition = condition[0].cpu().item()
             visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
-
-        return final_discriminator_loss, final_generator_loss
 
     global_step = -1
 
@@ -295,6 +328,7 @@ def train_and_evaluate(
 
 
 def main(args):
+    logger = get_logger(args.log_dirpath)
     mnist_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
     train_ds = torchvision.datasets.MNIST(args.data_dirpath, transform=mnist_transform, train=True, download=True)
     train_dl = torch.utils.data.DataLoader(
@@ -338,6 +372,7 @@ def main(args):
         train_dl=train_dl,
         eval_dl=train_dl,
         n_epochs=args.n_epochs,
+        log_interval=args.log_interval,
         eval_interval=args.eval_interval,
         gan_feature_map_loss_weigth=args.gan_feature_map_loss_weigth,
         gan_generator_loss_weight=args.gan_generator_loss_weight,
@@ -346,6 +381,7 @@ def main(args):
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
         viz_save_dirpath=args.viz_save_dirpath,
+        logger=logger,
     )
 
 
