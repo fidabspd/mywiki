@@ -7,7 +7,11 @@ __pycache__
 # temporary file
 tmp*
 
-tutorial_and_demo/CNF/results
-tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/.data
-tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/logs
-tutorial_and_demo/CNF/gen_mnist_by_cnf_tutorial/cnf_mnist_viz_result
+# data
+.data*
+
+# log
+log*
+
+# result
+result*
