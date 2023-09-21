@@ -9,7 +9,7 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 
 import utils
-from network import AECNF, Discriminator
+from network import AECNF, FullDiscriminator
 import losses
 
 
@@ -62,7 +62,7 @@ def train_and_evaluate(
     cnf_loss_weight: float = 1.0,
     viz: bool = True,
     n_viz_time_steps: int = 11,
-    viz_save_dirpath: str = "./cnf_mnist_viz_result/",
+    viz_save_dirpath: str = "./results/",
     logger: logging = None,
     tensorabord_train_writer: SummaryWriter = None,
     tensorabord_eval_writer: SummaryWriter = None,
@@ -278,15 +278,15 @@ def main(args):
         dropout_ratio=args.dropout_ratio,
         device=args.device,
     ).to(args.device)
-    discriminator = Discriminator(
+    discriminator = FullDiscriminator(
         in_channels=1,
         hidden_channels=32,
-        kernel_size=3,
+        out_channels=1,
         stride=1,
     ).to(args.device)
     generator_n_params = utils.count_parameters(generator)
     discriminator_n_params = utils.count_parameters(discriminator)
-    print(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
+    logger.info(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
     optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=args.learning_rate)
 

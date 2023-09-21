@@ -1,27 +1,28 @@
 import torch
+from typing import List, Tuple
 
 
 def calculate_gan_discriminator_loss(
-    disc_true_output: torch.Tensor,
-    disc_pred_output: torch.Tensor,
-) -> torch.Tensor:
-    disc_real_true_loss = torch.log(disc_true_output)
-    disc_real_true_loss = disc_real_true_loss.flatten(start_dim=1).sum(dim=1).mean()
-    disc_pred_true_loss = torch.log(1 - disc_pred_output)
-    disc_pred_true_loss = disc_pred_true_loss.flatten(start_dim=1).sum(dim=1).mean()
+    disc_true_output: List[torch.Tensor],
+    disc_pred_output: List[torch.Tensor],
+) -> Tuple[torch.Tensor]:
+    disc_true_output = torch.cat([output.flatten(start_dim=1) for output in disc_true_output], dim=1)
+    disc_pred_output = torch.cat([output.flatten(start_dim=1) for output in disc_pred_output], dim=1)
+    disc_real_true_loss = torch.log(disc_true_output).sum(dim=1).mean()
+    disc_pred_true_loss = torch.log(1 - disc_pred_output).sum(dim=1).mean()
     gan_discriminator_loss = -(disc_real_true_loss + disc_pred_true_loss)
     return gan_discriminator_loss, disc_real_true_loss, disc_pred_true_loss
 
 
-def calculate_gan_generator_loss(disc_pred_output: torch.Tensor) -> torch.Tensor:
-    disc_fake_pred_loss = torch.log(disc_pred_output)
-    disc_fake_pred_loss = disc_fake_pred_loss.flatten(start_dim=1).sum(dim=1).mean()
+def calculate_gan_generator_loss(disc_pred_output: torch.Tensor) -> Tuple[torch.Tensor]:
+    disc_pred_output = torch.cat([output.flatten(start_dim=1) for output in disc_pred_output], dim=1)
+    disc_fake_pred_loss = torch.log(disc_pred_output).sum(dim=1).mean()
     gan_generator_loss = -disc_fake_pred_loss
     return gan_generator_loss, disc_fake_pred_loss
 
 
 def calculate_disc_fake_feature_map_loss(
-    disc_true_feature_maps: torch.Tensor, disc_pred_feature_maps: torch.Tensor
+    disc_true_feature_maps: List[torch.Tensor], disc_pred_feature_maps: List[torch.Tensor]
 ) -> torch.Tensor:
     disc_fake_feature_map_loss = 0
     for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):

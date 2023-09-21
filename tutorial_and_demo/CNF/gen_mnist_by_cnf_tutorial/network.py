@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torchdiffeq import odeint_adjoint as odeint
 import numpy as np
+from typing import Tuple, List
 
 
 class ImageEncoder(nn.Module):
@@ -154,11 +155,12 @@ class ODEFunc(nn.Module):
         return (dz_dt, dlogp_z_dt, condition)
 
 
-class Discriminator(nn.Module):
+class PartDiscriminator(nn.Module):
     def __init__(
         self,
         in_channels: int = 1,
         hidden_channels: int = 32,
+        out_channels: int = 1,
         kernel_size: int = 3,
         stride: int = 1,
     ) -> None:
@@ -167,15 +169,46 @@ class Discriminator(nn.Module):
         conv1 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, stride, padding="same")
         conv2 = nn.Conv2d(hidden_channels, hidden_channels, kernel_size, stride, padding="same")
         self.conv_layers = nn.ModuleList([conv0, conv1, conv2])
-        self.post_layer = nn.Conv2d(hidden_channels, 1, kernel_size, stride)
+        self.post_layer = nn.Conv2d(hidden_channels, out_channels, kernel_size, stride)
 
-    def forward(self, input):
+    def forward(self, input) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         feature_maps = []
         for layer in self.conv_layers:
             input = layer(input)
             feature_maps.append(input)
         output = torch.sigmoid(self.post_layer(input))
         return output, feature_maps
+
+
+class FullDiscriminator(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 1,
+        hidden_channels: int = 32,
+        out_channels: int = 1,
+        stride: int = 1,
+    ) -> None:
+        super().__init__()
+        discriminators = []
+        for kernel_size in (3, 5):
+            discriminator = PartDiscriminator(
+                in_channels=in_channels,
+                hidden_channels=hidden_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+            )
+            discriminators.append(discriminator)
+        self.discriminators = nn.ModuleList(discriminators)
+
+    def forward(self, input: torch.Tensor) -> Tuple[List[torch.Tensor]]:
+        outputs = []
+        feature_maps = []
+        for discriminator in self.discriminators:
+            output, feature_map = discriminator(input)
+            outputs.append(output)
+            feature_maps.extend(feature_map)
+        return outputs, feature_maps
 
 
 class AECNF(nn.Module):
@@ -199,6 +232,7 @@ class AECNF(nn.Module):
         self.device = device
         self.t0 = ode_t0
         self.t1 = ode_t1
+        self.latent_dim = latent_dim
 
         # pdf of z0
         mean = torch.zeros(latent_dim).type(torch.float32)
