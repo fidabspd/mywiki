@@ -1,9 +1,8 @@
 import os
 import argparse
+import json
 import logging
-import sys
 from tqdm import tqdm
-import numpy as np
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
@@ -16,10 +15,10 @@ import losses
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
-    parser.add_argument("--batch_size", type=int, default=1024)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--n_epochs", type=int, default=100)
-    parser.add_argument("--log_interval", type=int, default=20)
-    parser.add_argument("--eval_interval", type=int, default=20)
+    parser.add_argument("--log_interval", type=int, default=250)
+    parser.add_argument("--eval_interval", type=int, default=500)
     parser.add_argument("--learning_rate", type=float, default=0.002)
 
     parser.add_argument("--in_out_dim", type=int, default=784)
@@ -39,7 +38,6 @@ def get_args():
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
-    parser.add_argument("--viz_save_dirpath", type=str, default="./cnf_mnist_viz_result/")
     parser.add_argument("--log_dirpath", type=str, default="./logs/")
 
     parser.add_argument("--device", type=str, default="cuda:0")
@@ -255,6 +253,9 @@ def main(args):
     tensorboard_train_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "train"))
     tensorboard_eval_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "eval"))
 
+    args_for_logging = utils.dict_to_indented_str(vars(args))
+    logger.info(args_for_logging)
+
     mnist_transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
     train_ds = torchvision.datasets.MNIST(args.data_dirpath, transform=mnist_transform, train=True, download=True)
     train_dl = torch.utils.data.DataLoader(
@@ -306,7 +307,7 @@ def main(args):
         cnf_loss_weight=args.cnf_loss_weight,
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
-        viz_save_dirpath=args.viz_save_dirpath,
+        viz_save_dirpath=os.path.join(args.log_dirpath, "viz"),
         logger=logger,
         tensorabord_train_writer=tensorboard_train_writer,
         tensorabord_eval_writer=tensorboard_eval_writer,

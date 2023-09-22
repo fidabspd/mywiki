@@ -9,24 +9,33 @@ class ImageEncoder(nn.Module):
     def __init__(
         self,
         in_dim: int = 784,
+        condition_dim: int = 4,
         hidden_dim: int = 32,
         latent_dim: int = 2,
+        n_hidden_layers: int = 2,
         epsilon: float = 1e-6,
         dropout_ratio: float = 0.1,
     ) -> None:
         super().__init__()
+        self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
         self.epsilon = epsilon
-        self.linear0 = nn.Linear(in_dim, hidden_dim)
-        self.linear1 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, latent_dim * 2)
+        self.linear_in = nn.Linear(in_dim, hidden_dim * 2)
+        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2 * n_hidden_layers)
+        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim * 2) for _ in range(n_hidden_layers)])
+        self.linear_out = nn.Linear(hidden_dim * 2, latent_dim * 2)
+        self.condition_mix_layer = TanhSigmoidMultiplyCondition(hidden_dim)
         self.dropout = nn.Dropout(dropout_ratio)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor]:
         output = torch.flatten(input, start_dim=1)
-        output = self.dropout(torch.nn.functional.elu(self.linear0(output)))
-        output = self.dropout(torch.tanh(self.linear1(output)))
-        output = self.linear2(output)
+        output = self.linear_in(output)
+        condition = self.linear_condition(condition)
+        for i, layer in enumerate(self.linear_hidden):
+            condition_seg = condition[:, i * self.hidden_dim * 2 : (i + 1) * self.hidden_dim * 2]
+            output = self.condition_mix_layer(output, condition_seg)
+            output = self.dropout(torch.relu(layer(output)))
+        output = self.linear_out(output)
         mean, std = torch.split(output, self.latent_dim, dim=1)
         std = torch.exp(std) + self.epsilon
         output = mean + torch.randn_like(mean) * std
@@ -37,21 +46,30 @@ class ImageDecoder(nn.Module):
     def __init__(
         self,
         latent_dim: int = 2,
+        condition_dim: int = 4,
         hidden_dim: int = 32,
         out_dim: int = 784,
+        n_hidden_layers: int = 2,
         dropout_ratio: float = 0.1,
     ) -> None:
         super().__init__()
         self.out_dim = out_dim
-        self.linear0 = nn.Linear(latent_dim, hidden_dim)
-        self.linear1 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, out_dim)
+        self.hidden_dim = hidden_dim
+        self.linear_in = nn.Linear(latent_dim, hidden_dim * 2)
+        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2 * n_hidden_layers)
+        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim * 2) for _ in range(n_hidden_layers)])
+        self.linear_out = nn.Linear(hidden_dim * 2, out_dim)
+        self.condition_mix_layer = TanhSigmoidMultiplyCondition(hidden_dim)
         self.dropout = nn.Dropout(dropout_ratio)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        output = self.dropout(torch.nn.functional.elu(self.linear0(input)))
-        output = self.dropout(torch.tanh(self.linear1(output)))
-        output = torch.sigmoid(self.linear2(output))
+    def forward(self, input: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        output = self.linear_in(input)
+        condition = self.linear_condition(condition)
+        for i, layer in enumerate(self.linear_hidden):
+            condition_seg = condition[:, i * self.hidden_dim * 2 : (i + 1) * self.hidden_dim * 2]
+            output = self.condition_mix_layer(output, condition_seg)
+            output = self.dropout(torch.relu(layer(output)))
+        output = torch.sigmoid(self.linear_out(output))
         output = output.view(-1, 1, int(self.out_dim**0.5), int(self.out_dim**0.5))
         return output
 
@@ -105,20 +123,15 @@ def trace_df_dz(f, z):
 class TanhSigmoidMultiplyCondition(nn.Module):
     def __init__(
         self,
-        latent_dim: int = 2,
-        condition_dim: int = 4,
+        hidden_dim: int = 2,
     ) -> None:
         super().__init__()
-        self.latent_dim = latent_dim
-        self.linear_latent = nn.Linear(latent_dim, latent_dim * 2)
-        self.linear_condition = nn.Linear(condition_dim, latent_dim * 2)
+        self.hidden_dim = hidden_dim
 
-    def forward(self, z: torch.Tensor, condition: torch.Tensor):
-        z = self.linear_latent(z)
-        condition = self.linear_condition(condition)
+    def forward(self, z: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         in_act = z + condition
-        t_act = torch.tanh(in_act[:, : self.latent_dim])
-        s_act = torch.sigmoid(in_act[:, self.latent_dim :])
+        t_act = torch.tanh(in_act[:, : self.hidden_dim])
+        s_act = torch.sigmoid(in_act[:, self.hidden_dim :])
         output = t_act * s_act
         return output
 
@@ -129,15 +142,16 @@ class ODEFunc(nn.Module):
         self.in_out_dim = in_out_dim
         self.hidden_dim = hidden_dim
         self.width = width
+        self.linear_in = nn.Linear(in_out_dim, in_out_dim * 2)
+        self.linear_condition = nn.Linear(condition_dim, in_out_dim * 2)
         self.hyper_net = HyperNetwork(in_out_dim, hidden_dim, width)
-        self.condition_layer = TanhSigmoidMultiplyCondition(
-            latent_dim=in_out_dim,
-            condition_dim=condition_dim,
-        )
+        self.condition_layer = TanhSigmoidMultiplyCondition(in_out_dim)
 
     def forward(self, t, states):
         z, logp_z, condition = states
         batchsize = z.shape[0]
+        z = self.linear_in(z)
+        condition = self.linear_condition(condition)
         z = self.condition_layer(z, condition)
 
         with torch.set_grad_enabled(True):
@@ -219,6 +233,7 @@ class AECNF(nn.Module):
         hidden_dim: int = 32,
         latent_dim: int = 2,
         condition_dim: int = 4,
+        n_hidden_layers: int = 2,
         ode_t0: int = 0,
         ode_t1: int = 10,
         cov_value: float = 0.1,
@@ -245,14 +260,18 @@ class AECNF(nn.Module):
 
         self.image_encoder = ImageEncoder(
             in_dim=in_out_dim,
+            condition_dim=condition_dim,
             hidden_dim=hidden_dim,
             latent_dim=latent_dim,
+            n_hidden_layers=n_hidden_layers,
             dropout_ratio=dropout_ratio,
         )
         self.image_decoder = ImageDecoder(
             latent_dim=latent_dim,
+            condition_dim=condition_dim,
             hidden_dim=hidden_dim,
             out_dim=in_out_dim,
+            n_hidden_layers=n_hidden_layers,
             dropout_ratio=dropout_ratio,
         )
         self.ode_func = ODEFunc(
@@ -262,16 +281,16 @@ class AECNF(nn.Module):
             width=ode_width,
         )
 
-    def forward(self, input: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        z_t1, mean, std = self.image_encoder(input)
-        reconstructed = self.image_decoder(z_t1)
+    def forward(self, input: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor]:
+        condition = self.condition_embedding_layer(condition)
 
-        condition_embedding = self.condition_embedding_layer(condition)
+        z_t1, mean, std = self.image_encoder(input, condition)
+        reconstructed = self.image_decoder(z_t1, condition)
 
         logp_diff_t1 = torch.zeros(self.batch_size, 1).type(torch.float32).to(self.device)
-        z_t, logp_diff_t, condition_embedding = odeint(
+        z_t, logp_diff_t, condition = odeint(
             self.ode_func,
-            (z_t1, logp_diff_t1, condition_embedding),
+            (z_t1, logp_diff_t1, condition),
             torch.tensor([self.t1, self.t0]).type(torch.float32).to(self.device),  # focus on [T1, T0] (not [T0, T1])
             atol=1e-5,
             rtol=1e-5,
@@ -284,22 +303,24 @@ class AECNF(nn.Module):
 
         return reconstructed, x_probs, mean, std
 
-    def generate(self, condition: torch.Tensor, n_time_steps: int = 2) -> torch.Tensor:
+    def generate(self, condition: torch.Tensor, n_time_steps: int = 2) -> Tuple[torch.Tensor]:
         with torch.no_grad():
+            condition = self.condition_embedding_layer(condition)
+
             z_t0 = self.p_z0.sample([1]).to(self.device)
             logp_diff_t0 = torch.zeros(1, 1).type(torch.float32).to(self.device)
 
-            condition_embedding = self.condition_embedding_layer(condition)
-
             time_space = np.linspace(self.t0, self.t1, n_time_steps)  # [T0, T1] for generation
-            z_t_samples, _, condition_embedding = odeint(
+            z_t_samples, _, condition = odeint(
                 self.ode_func,
-                (z_t0, logp_diff_t0, condition_embedding),
+                (z_t0, logp_diff_t0, condition),
                 torch.tensor(time_space).to(self.device),
                 atol=1e-5,
                 rtol=1e-5,
                 method="dopri5",
             )
-            gen_image = self.image_decoder(z_t_samples)
+            z_t_samples = z_t_samples.view(n_time_steps, -1)
+            condition = condition.view(n_time_steps, -1)
+            gen_image = self.image_decoder(z_t_samples, condition)
 
         return gen_image, time_space

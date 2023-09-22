@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 
-def get_logger(log_dirpath: str, log_filename: str = "training_log.log"):
+def get_logger(log_dirpath: str, log_filename: str = "training_log.log") -> logging:
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logger = logging
     logger = logging.getLogger(os.path.basename(log_dirpath))
@@ -23,7 +23,28 @@ def get_logger(log_dirpath: str, log_filename: str = "training_log.log"):
     return logger
 
 
-def count_parameters(model):
+def dict_to_indented_str(input: dict, indent_space: int = 4) -> str:
+    def recur_func(input, n_indent, indent_space):
+        nonlocal output
+        output += " " * indent_space * n_indent + "{\n"
+        for k, v in input.items():
+            if isinstance(v, dict):
+                recur_func(v, n_indent=n_indent + 1, indent_space=indent_space)
+            else:
+                k = f'"{k}"'
+                if isinstance(v, str):
+                    v = f'"{v}"'
+                elif isinstance(v, bool):
+                    v = str(v).lower()
+                output += " " * indent_space * (n_indent + 1) + f"{k}: {v},\n"
+        output += " " * indent_space * n_indent + "}\n"
+
+    output = ""
+    recur_func(input, 0, indent_space=indent_space)
+    return output
+
+
+def count_parameters(model: torch.nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
