@@ -58,6 +58,38 @@ def clip_and_get_grad_values(
     return total_norm
 
 
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim,
+    epoch: int,
+    global_step: int,
+    checkpoint_filepath: str,
+    logger: logging = None,
+) -> None:
+    if logger is not None:
+        logger.info("Saving model and optimizer state at global step {} to {}".format(global_step, checkpoint_filepath))
+
+    checkpoint_dirpath = os.path.split(checkpoint_filepath)[0]
+    if not os.path.exists(checkpoint_dirpath):
+        os.makedirs(checkpoint_dirpath)
+
+    optimizer_state_dict = None
+    if optimizer is not None:
+        optimizer_state_dict = optimizer.state_dict()
+
+    state_dict = model.state_dict()
+
+    torch.save(
+        {
+            "epoch": epoch,
+            "global_step": global_step,
+            "model": state_dict,
+            "optimizer": optimizer_state_dict,
+        },
+        checkpoint_filepath,
+    )
+
+
 def visualize_inference_result(
     z_t_samples: torch.Tensor,
     condition: int,

@@ -58,6 +58,7 @@ def train_and_evaluate(
     gan_generator_loss_weight: float = 1.0,
     vae_loss_weight: float = 1.0,
     cnf_loss_weight: float = 1.0,
+    checkpoint_save_dirpath: str = "./checkpoints/",
     viz: bool = True,
     n_viz_time_steps: int = 11,
     viz_save_dirpath: str = "./results/",
@@ -240,6 +241,16 @@ def train_and_evaluate(
             for k, v in scalar_dict.items():
                 tensorabord_eval_writer.add_scalar(k, v, global_step)
 
+        # save checkpoint
+        generator_checkpoint_filepath = os.path.join(checkpoint_save_dirpath, f"cpt_gen_{global_step}.pth")
+        discriminator_checkpoint_filepath = os.path.join(checkpoint_save_dirpath, f"cpt_disc_{global_step}.pth")
+        utils.save_checkpoint(
+            generator, optimizer_generator, epoch_idx, global_step, generator_checkpoint_filepath, logger
+        )
+        utils.save_checkpoint(
+            discriminator, optimizer_discriminator, epoch_idx, global_step, discriminator_checkpoint_filepath, logger
+        )
+
         # visualization
         if viz:
             condition = label[:1]
@@ -314,6 +325,7 @@ def main(args):
         cnf_loss_weight=args.cnf_loss_weight,
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
+        checkpoint_save_dirpath=os.path.join(args.log_dirpath, "checkpoints"),
         viz_save_dirpath=os.path.join(args.log_dirpath, "viz"),
         logger=logger,
         tensorabord_train_writer=tensorboard_train_writer,
