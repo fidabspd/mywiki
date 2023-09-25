@@ -48,6 +48,16 @@ def count_parameters(model: torch.nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def clip_and_get_grad_values(
+    model: torch.nn.Module, max_clip_value: float = None, norm_type: float = 2.0
+) -> torch.Tensor:
+    parameters = model.parameters()
+    if not max_clip_value:
+        max_clip_value = torch.inf
+    total_norm = torch.nn.utils.clip_grad_norm_(parameters=parameters, max_norm=max_clip_value, norm_type=norm_type)
+    return total_norm
+
+
 def visualize_inference_result(
     z_t_samples: torch.Tensor,
     condition: int,

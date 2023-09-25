@@ -94,6 +94,7 @@ def train_and_evaluate(
                 disc_true_output, disc_pred_output, return_only_final_loss=False
             )
             final_discriminator_loss.backward()
+            grad_discriminator = utils.clip_and_get_grad_values(discriminator)
             optimizer_discriminator.step()
             optimizer_discriminator.zero_grad()
 
@@ -125,6 +126,7 @@ def train_and_evaluate(
                 return_only_final_loss=False,
             )
             final_generator_loss.backward()
+            grad_generator = utils.clip_and_get_grad_values(generator)
             optimizer_generator.step()
             optimizer_generator.zero_grad()
 
@@ -137,6 +139,8 @@ def train_and_evaluate(
                 # text logging
                 _info = ""
                 _info += f"\n=== Global step: {global_step} ==="
+                _info += f"\nGradient"
+                _info += f"\n\tgrad_generator: {grad_generator:.2f}, grad_discriminator: {grad_discriminator:.2f}"
                 _info += f"\nTraining Loss"
                 _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss:.2f}"
                 _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss:.2f}, disc_real_pred_loss: {disc_real_pred_loss:.2f}"
@@ -150,6 +154,8 @@ def train_and_evaluate(
 
                 # tensorboard logging
                 scalar_dict = {}
+                scalar_dict.update({"grad/grad_generator": grad_generator})
+                scalar_dict.update({"grad/grad_discriminator": grad_discriminator})
                 scalar_dict.update({"final_discriminator_loss": final_discriminator_loss})
                 scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": disc_real_true_loss})
                 scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": disc_real_pred_loss})
