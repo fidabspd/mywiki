@@ -129,6 +129,7 @@ def train_and_evaluate(
             grad_generator = utils.clip_and_get_grad_values(generator)
             optimizer_generator.step()
             optimizer_generator.zero_grad()
+            optimizer_discriminator.zero_grad()
 
             # result of step
             step_pbar.set_description(
