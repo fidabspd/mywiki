@@ -299,9 +299,8 @@ class AECNF(nn.Module):
         z_t0, logp_diff_t0 = z_t[-1], logp_diff_t[-1]
 
         logp_x = self.p_z0.log_prob(z_t0).to(self.device) - logp_diff_t0.view(-1)
-        x_probs = logp_x.mean(0)
 
-        return reconstructed, x_probs, mean, std
+        return reconstructed, logp_x, mean, std
 
     def generate(self, condition: torch.Tensor, n_time_steps: int = 2) -> Tuple[torch.Tensor]:
         with torch.no_grad():

@@ -26,7 +26,7 @@ def get_args():
     parser.add_argument("--latent_dim", type=int, default=2)
     parser.add_argument("--ode_t0", type=int, default=0)
     parser.add_argument("--ode_t1", type=int, default=10)
-    parser.add_argument("--cov_value", type=float, default=0.1)
+    parser.add_argument("--cov_value", type=float, default=1)
     parser.add_argument("--ode_hidden_dim", type=int, default=32)
     parser.add_argument("--ode_width", type=int, default=32)
     parser.add_argument("--dropout_ratio", type=float, default=0.1)
@@ -80,7 +80,7 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
 
             # forward generator
-            reconstructed, cnf_probs, mean, std = generator(image, label)
+            reconstructed, logp_x, mean, std = generator(image, label)
 
             # forward discriminator
             disc_true_output, disc_true_feature_maps = discriminator(image)
@@ -110,16 +110,15 @@ def train_and_evaluate(
                 disc_fake_pred_loss,
                 recon_loss,
                 kl_divergence,
-                cnf_probs,
+                cnf_log_prob,
             ) = losses.calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
                 disc_true_feature_maps=disc_true_feature_maps,
                 disc_pred_feature_maps=disc_pred_feature_maps,
-                mean=mean,
                 std=std,
-                cnf_probs=cnf_probs,
+                logp_x=logp_x,
                 disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
@@ -149,7 +148,7 @@ def train_and_evaluate(
                 _info += f"\n\tfinal_generator_loss: {final_generator_loss:.2f}"
                 _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
                 _info += (
-                    f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_probs: {cnf_probs:.2f}\n"
+                    f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_log_prob: {cnf_log_prob:.2f}\n"
                 )
                 if logger is not None:
                     logger.info(_info)
@@ -166,7 +165,7 @@ def train_and_evaluate(
                 scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": disc_fake_pred_loss})
                 scalar_dict.update({"final_generator_loss/recon_loss": recon_loss})
                 scalar_dict.update({"final_generator_loss/kl_divergence": kl_divergence})
-                scalar_dict.update({"final_generator_loss/cnf_probs": cnf_probs})
+                scalar_dict.update({"final_generator_loss/cnf_log_prob": cnf_log_prob})
                 if tensorabord_train_writer is not None:
                     for k, v in scalar_dict.items():
                         tensorabord_train_writer.add_scalar(k, v, global_step)
@@ -179,7 +178,7 @@ def train_and_evaluate(
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, cnf_probs, mean, std = generator(image, label)
+            reconstructed, logp_x, mean, std = generator(image, label)
             disc_true_output, disc_true_feature_maps = discriminator(image)
             disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
@@ -196,16 +195,15 @@ def train_and_evaluate(
                 eval_disc_fake_pred_loss,
                 eval_recon_loss,
                 eval_kl_divergence,
-                eval_cnf_probs,
+                eval_cnf_log_prob,
             ) = losses.calculate_final_generator_loss(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
                 disc_true_feature_maps=disc_true_feature_maps,
                 disc_pred_feature_maps=disc_pred_feature_maps,
-                mean=mean,
                 std=std,
-                cnf_probs=cnf_probs,
+                logp_x=logp_x,
                 disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
                 gan_generator_loss_weight=gan_generator_loss_weight,
                 vae_loss_weight=vae_loss_weight,
@@ -222,7 +220,7 @@ def train_and_evaluate(
         _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss:.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss:.2f}"
         _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss:.2f}"
         _info += f"\n\t\tdisc_fake_feature_map_loss: {eval_disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss:.2f}"
-        _info += f", recon_loss: {eval_recon_loss:.2f}, kl_divergence: {eval_kl_divergence:.2f}, cnf_probs: {eval_cnf_probs:.2f}\n"
+        _info += f", recon_loss: {eval_recon_loss:.2f}, kl_divergence: {eval_kl_divergence:.2f}, cnf_log_prob: {eval_cnf_log_prob:.2f}\n"
         if logger is not None:
             logger.info(_info)
 
@@ -236,7 +234,7 @@ def train_and_evaluate(
         scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": eval_disc_fake_pred_loss})
         scalar_dict.update({"final_generator_loss/recon_loss": eval_recon_loss})
         scalar_dict.update({"final_generator_loss/kl_divergence": eval_kl_divergence})
-        scalar_dict.update({"final_generator_loss/cnf_probs": eval_cnf_probs})
+        scalar_dict.update({"final_generator_loss/cnf_log_prob": eval_cnf_log_prob})
         if tensorabord_eval_writer is not None:
             for k, v in scalar_dict.items():
                 tensorabord_eval_writer.add_scalar(k, v, global_step)

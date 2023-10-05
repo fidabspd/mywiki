@@ -33,21 +33,26 @@ def calculate_disc_fake_feature_map_loss(
 def calculate_vae_loss(
     image_true: torch.Tensor,
     imgae_pred: torch.Tensor,
-    mean: torch.Tensor,
-    std: torch.Tensor,
+    posterior_std: torch.Tensor,
+    prior_log_probs: torch.Tensor,
 ) -> Tuple[torch.Tensor]:
     recon_loss = image_true * torch.log(imgae_pred) + (1 - image_true) * torch.log(1 - imgae_pred)
     recon_loss = torch.flatten(recon_loss, start_dim=1).sum(dim=1).mean()
-    kl_divergence = torch.square(mean) + torch.square(std) - torch.log(torch.square(std)) - 1
-    kl_divergence = 0.5 * torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
+    posterior_log_probs = (
+        -torch.log(posterior_std) - 0.5 * torch.log(2 * torch.FloatTensor([torch.pi]).to(posterior_std.device)) - 0.5
+    )
+    posterior_log_probs = posterior_log_probs.sum(dim=1)  # assume non diagonal elements of cov matrix are zero
+    kl_divergence = torch.abs(posterior_log_probs - prior_log_probs)
+    kl_divergence = kl_divergence.mean()
     elbo = recon_loss - kl_divergence
     loss = -elbo
     return loss, recon_loss, kl_divergence
 
 
-def calculate_cnf_loss(x_probs: torch.Tensor) -> Tuple[torch.Tensor]:
-    loss = -x_probs
-    return loss, x_probs
+def calculate_cnf_loss(logp_x: torch.Tensor) -> Tuple[torch.Tensor]:
+    log_prob = logp_x.mean()
+    loss = -log_prob
+    return loss, log_prob
 
 
 def calculate_final_discriminator_loss(
@@ -70,9 +75,8 @@ def calculate_final_generator_loss(
     disc_pred_output: torch.Tensor,
     disc_true_feature_maps: List[torch.Tensor],
     disc_pred_feature_maps: List[torch.Tensor],
-    mean: torch.Tensor,
     std: torch.Tensor,
-    cnf_probs: torch.Tensor,
+    logp_x: torch.Tensor,
     disc_fake_feature_map_loss_weigth: float = 1.0,
     gan_generator_loss_weight: float = 1.0,
     vae_loss_weight: float = 1.0,
@@ -81,8 +85,8 @@ def calculate_final_generator_loss(
 ) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
     disc_fake_feature_map_loss = calculate_disc_fake_feature_map_loss(disc_true_feature_maps, disc_pred_feature_maps)
     gan_generator_loss, disc_fake_pred_loss = calculate_gan_generator_loss(disc_pred_output)
-    vae_loss, recon_loss, kl_divergence = calculate_vae_loss(image_true, imgae_pred, mean, std)
-    cnf_loss, cnf_probs = calculate_cnf_loss(cnf_probs)
+    vae_loss, recon_loss, kl_divergence = calculate_vae_loss(image_true, imgae_pred, std, logp_x)
+    cnf_loss, cnf_log_prob = calculate_cnf_loss(logp_x)
     final_generator_loss = (
         disc_fake_feature_map_loss_weigth * disc_fake_feature_map_loss
         + gan_generator_loss_weight * gan_generator_loss
@@ -98,5 +102,5 @@ def calculate_final_generator_loss(
             disc_fake_pred_loss,
             recon_loss,
             kl_divergence,
-            cnf_probs,
+            cnf_log_prob,
         )
