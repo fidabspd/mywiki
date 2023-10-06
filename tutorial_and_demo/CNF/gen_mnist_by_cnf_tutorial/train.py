@@ -165,6 +165,7 @@ def train_and_evaluate(
 
     def evaluate():
         generator.eval()
+        discriminator.eval()
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
