@@ -77,47 +77,42 @@ class ImageDecoder(nn.Module):
 class HyperNetwork(nn.Module):
     """https://arxiv.org/abs/1609.09106"""
 
-    def __init__(self, in_out_dim, hidden_dim, width):
+    def __init__(self, in_out_dim, hidden_dim, width, condition_dim):
         super().__init__()
 
         blocksize = width * in_out_dim
 
-        self.fc1 = nn.Linear(1, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, 3 * blocksize + width)
+        self.condition_layer = TanhSigmoidMultiplyCondition(hidden_dim)
+
+        self.linear_t = nn.Linear(1, hidden_dim * 2)
+        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2)
+        self.linear_hidden = nn.Linear(hidden_dim, hidden_dim)
+        self.linear_out = nn.Linear(hidden_dim, 3 * blocksize + width)
 
         self.in_out_dim = in_out_dim
         self.hidden_dim = hidden_dim
         self.width = width
         self.blocksize = blocksize
 
-    def forward(self, t):
+    def forward(self, t, condition):
         # predict params
-        params = t.reshape(1, 1)
-        params = torch.tanh(self.fc1(params))
-        params = torch.tanh(self.fc2(params))
-        params = self.fc3(params)
+        t = t.reshape(1, 1)
+        t = self.linear_t(t)
+        condition = self.linear_condition(condition)
+        params = self.condition_layer(t, condition)
+        params = torch.tanh(self.linear_hidden(params))
+        params = self.linear_out(params)
 
         # restructure
-        params = params.reshape(-1)
-        W = params[: self.blocksize].reshape(self.width, self.in_out_dim, 1)
+        W = params[:, : self.blocksize].reshape(-1, self.width, self.in_out_dim, 1).transpose(0, 1).contiguous()
 
-        U = params[self.blocksize : 2 * self.blocksize].reshape(self.width, 1, self.in_out_dim)
+        U = params[:, self.blocksize : 2 * self.blocksize].reshape(-1, self.width, 1, self.in_out_dim).transpose(0, 1).contiguous()
 
-        G = params[2 * self.blocksize : 3 * self.blocksize].reshape(self.width, 1, self.in_out_dim)
+        G = params[:, 2 * self.blocksize : 3 * self.blocksize].reshape(-1, self.width, 1, self.in_out_dim).transpose(0, 1).contiguous()
         U = U * torch.sigmoid(G)
 
-        B = params[3 * self.blocksize :].reshape(self.width, 1, 1)
+        B = params[:, 3 * self.blocksize :].reshape(-1, self.width, 1, 1).transpose(0, 1).contiguous()
         return [W, B, U]
-
-
-def trace_df_dz(f, z):
-    """Calculates the trace (equals to det) of the Jacobian df/dz."""
-    sum_diag = 0.0
-    for i in range(z.shape[1]):
-        sum_diag += torch.autograd.grad(f[:, i].sum(), z, create_graph=True)[0].contiguous()[:, i].contiguous()
-
-    return sum_diag.contiguous()  # [batch_size]
 
 
 class TanhSigmoidMultiplyCondition(nn.Module):
@@ -142,29 +137,32 @@ class ODEFunc(nn.Module):
         self.in_out_dim = in_out_dim
         self.hidden_dim = hidden_dim
         self.width = width
-        self.linear_in = nn.Linear(in_out_dim, in_out_dim * 2)
-        self.linear_condition = nn.Linear(condition_dim, in_out_dim * 2)
-        self.hyper_net = HyperNetwork(in_out_dim, hidden_dim, width)
-        self.condition_layer = TanhSigmoidMultiplyCondition(in_out_dim)
+        self.hyper_net = HyperNetwork(in_out_dim, hidden_dim, width, condition_dim)
+
+    def trace_df_dz(self, f, z):
+        """Calculates the trace (equals to det) of the Jacobian df/dz."""
+        sum_diag = 0.0
+        for i in range(z.shape[1]):
+            sum_diag += torch.autograd.grad(f[:, i].sum(), z, create_graph=True)[0].contiguous()[:, i].contiguous()
+
+        return sum_diag.contiguous()  # [batch_size]
 
     def forward(self, t, states):
         z, logp_z, condition = states
         batchsize = z.shape[0]
-        z = self.linear_in(z)
-        condition = self.linear_condition(condition)
-        z = self.condition_layer(z, condition)
 
         with torch.set_grad_enabled(True):
             z.requires_grad_(True)
 
-            W, B, U = self.hyper_net(t)
+            W, B, U = self.hyper_net(t, condition)
 
-            Z = torch.unsqueeze(z, 0).repeat(self.width, 1, 1)
+            Z = z.unsqueeze(0).unsqueeze(-2).repeat(self.width, 1, 1, 1)
 
             h = torch.tanh(torch.matmul(Z, W) + B)
             dz_dt = torch.matmul(h, U).mean(0)  # mean by width dim
+            dz_dt = dz_dt.squeeze(dim=1)
 
-            dlogp_z_dt = -trace_df_dz(dz_dt, z).view(batchsize, 1)
+            dlogp_z_dt = -self.trace_df_dz(dz_dt, z).view(batchsize, 1)
 
         return (dz_dt, dlogp_z_dt, condition)
 
