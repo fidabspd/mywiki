@@ -106,9 +106,19 @@ class HyperNetwork(nn.Module):
         # restructure
         W = params[:, : self.blocksize].reshape(-1, self.width, self.in_out_dim, 1).transpose(0, 1).contiguous()
 
-        U = params[:, self.blocksize : 2 * self.blocksize].reshape(-1, self.width, 1, self.in_out_dim).transpose(0, 1).contiguous()
+        U = (
+            params[:, self.blocksize : 2 * self.blocksize]
+            .reshape(-1, self.width, 1, self.in_out_dim)
+            .transpose(0, 1)
+            .contiguous()
+        )
 
-        G = params[:, 2 * self.blocksize : 3 * self.blocksize].reshape(-1, self.width, 1, self.in_out_dim).transpose(0, 1).contiguous()
+        G = (
+            params[:, 2 * self.blocksize : 3 * self.blocksize]
+            .reshape(-1, self.width, 1, self.in_out_dim)
+            .transpose(0, 1)
+            .contiguous()
+        )
         U = U * torch.sigmoid(G)
 
         B = params[:, 3 * self.blocksize :].reshape(-1, self.width, 1, 1).transpose(0, 1).contiguous()

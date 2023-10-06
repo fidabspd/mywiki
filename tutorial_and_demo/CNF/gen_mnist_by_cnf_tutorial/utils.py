@@ -67,7 +67,9 @@ def save_checkpoint(
     logger: logging = None,
 ) -> None:
     if logger is not None:
-        logger.info("Saving model and optimizer state at global step {} to {}".format(global_step, checkpoint_filepath))
+        logger.info(
+            "Saving model and optimizer state at global step {} to {}".format(global_step, checkpoint_filepath)
+        )
 
     checkpoint_dirpath = os.path.split(checkpoint_filepath)[0]
     if not os.path.exists(checkpoint_dirpath):
