@@ -69,6 +69,7 @@ def train_and_evaluate(
 
         step_pbar = tqdm(train_dl)
         for batch in step_pbar:
+            torch.cuda.empty_cache()
             global_step += 1
             generator.train()
             discriminator.train()
