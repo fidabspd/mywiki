@@ -92,7 +92,7 @@ def train_and_evaluate(
                 disc_real_pred_loss,
             ) = criterion_discriminator(disc_true_output, disc_pred_output)
             final_discriminator_loss.backward()
-            grad_discriminator = utils.clip_and_get_grad_values(discriminator)
+            discriminator_grad = utils.clip_and_get_grad_values(discriminator)
             optimizer_discriminator.step()
             optimizer_discriminator.zero_grad()
 
@@ -118,14 +118,14 @@ def train_and_evaluate(
                 logp_x=logp_x,
             )
             final_generator_loss.backward()
-            grad_generator = utils.clip_and_get_grad_values(generator)
+            generator_grad = utils.clip_and_get_grad_values(generator)
             optimizer_generator.step()
             optimizer_generator.zero_grad()
             optimizer_discriminator.zero_grad()
 
             # result of step
             step_pbar.set_description(
-                f"[Global step: {global_step}, Discriminator loss: {final_discriminator_loss:.2f}, Generator loss: {final_generator_loss:.2f}]"
+                f"[Global step: {global_step}, Discriminator loss: {final_discriminator_loss.item():.2f}, Generator loss: {final_generator_loss.item():.2f}]"
             )
 
             if global_step % log_interval == 0:
@@ -133,20 +133,20 @@ def train_and_evaluate(
                 _info = ""
                 _info += f"\n=== Global step: {global_step} ==="
                 _info += f"\nGradient"
-                _info += f"\n\tgrad_generator: {grad_generator:.2f}, grad_discriminator: {grad_discriminator:.2f}"
+                _info += f"\n\tgenerator_grad: {generator_grad.item():.2f}, discriminator_grad: {discriminator_grad.item():.2f}"
                 _info += f"\nTraining Loss"
-                _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss:.2f}"
-                _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss:.2f}, disc_real_pred_loss: {disc_real_pred_loss:.2f}"
-                _info += f"\n\tfinal_generator_loss: {final_generator_loss:.2f}"
-                _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
-                _info += f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_log_prob: {cnf_log_prob:.2f}\n"
+                _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss.item():.2f}"
+                _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss.item():.2f}, disc_real_pred_loss: {disc_real_pred_loss.item():.2f}"
+                _info += f"\n\tfinal_generator_loss: {final_generator_loss.item():.2f}"
+                _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss.item():.2f}, disc_fake_pred_loss: {disc_fake_pred_loss.item():.2f}"
+                _info += f", recon_loss: {recon_loss.item():.2f}, kl_divergence: {kl_divergence.item():.2f}, cnf_log_prob: {cnf_log_prob.item():.2f}\n"
                 if logger is not None:
                     logger.info(_info)
 
                 # tensorboard logging
                 scalar_dict = {}
-                scalar_dict.update({"grad/grad_generator": grad_generator})
-                scalar_dict.update({"grad/grad_discriminator": grad_discriminator})
+                scalar_dict.update({"grad/generator_grad": generator_grad})
+                scalar_dict.update({"grad/discriminator_grad": discriminator_grad})
                 scalar_dict.update({"final_discriminator_loss": final_discriminator_loss})
                 scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": disc_real_true_loss})
                 scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": disc_real_pred_loss})
@@ -200,11 +200,11 @@ def train_and_evaluate(
         _info = ""
         _info += f"\n=== Global step: {global_step} ==="
         _info += f"\nEvaluation Loss"
-        _info += f"\n\tfinal_discriminator_loss: {eval_final_discriminator_loss:.2f}"
-        _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss:.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss:.2f}"
-        _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss:.2f}"
-        _info += f"\n\t\tdisc_fake_feature_map_loss: {eval_disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss:.2f}"
-        _info += f", recon_loss: {eval_recon_loss:.2f}, kl_divergence: {eval_kl_divergence:.2f}, cnf_log_prob: {eval_cnf_log_prob:.2f}\n"
+        _info += f"\n\tfinal_discriminator_loss: {eval_final_discriminator_loss.item():.2f}"
+        _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss.item():.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss.item():.2f}"
+        _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss.item():.2f}"
+        _info += f"\n\t\tdisc_fake_feature_map_loss: {eval_disc_fake_feature_map_loss.item():.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss.item():.2f}"
+        _info += f", recon_loss: {eval_recon_loss.item():.2f}, kl_divergence: {eval_kl_divergence.item():.2f}, cnf_log_prob: {eval_cnf_log_prob.item():.2f}\n"
         if logger is not None:
             logger.info(_info)
 
