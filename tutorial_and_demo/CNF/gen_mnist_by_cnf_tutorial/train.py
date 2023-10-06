@@ -47,6 +47,8 @@ def get_args():
 def train_and_evaluate(
     generator: torch.nn.Module,
     discriminator: torch.nn.Module,
+    criterion_generator: torch.nn.Module,
+    criterion_discriminator: torch.nn.Module,
     optimizer_generator: torch.optim,
     optimizer_discriminator: torch.optim,
     train_dl: torch.utils.data.DataLoader,
@@ -54,10 +56,6 @@ def train_and_evaluate(
     n_epochs: int = 100,
     log_interval: int = 20,
     eval_interval: int = 200,
-    disc_fake_feature_map_loss_weigth: float = 1.0,
-    gan_generator_loss_weight: float = 1.0,
-    vae_loss_weight: float = 1.0,
-    cnf_loss_weight: float = 1.0,
     checkpoint_save_dirpath: str = "./checkpoints/",
     viz: bool = True,
     n_viz_time_steps: int = 11,
@@ -91,9 +89,7 @@ def train_and_evaluate(
                 final_discriminator_loss,
                 disc_real_true_loss,
                 disc_real_pred_loss,
-            ) = losses.calculate_final_discriminator_loss(
-                disc_true_output, disc_pred_output, return_only_final_loss=False
-            )
+            ) = criterion_discriminator(disc_true_output, disc_pred_output)
             final_discriminator_loss.backward()
             grad_discriminator = utils.clip_and_get_grad_values(discriminator)
             optimizer_discriminator.step()
@@ -111,7 +107,7 @@ def train_and_evaluate(
                 recon_loss,
                 kl_divergence,
                 cnf_log_prob,
-            ) = losses.calculate_final_generator_loss(
+            ) = criterion_generator(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -119,11 +115,6 @@ def train_and_evaluate(
                 disc_pred_feature_maps=disc_pred_feature_maps,
                 std=std,
                 logp_x=logp_x,
-                disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
-                gan_generator_loss_weight=gan_generator_loss_weight,
-                vae_loss_weight=vae_loss_weight,
-                cnf_loss_weight=cnf_loss_weight,
-                return_only_final_loss=False,
             )
             final_generator_loss.backward()
             grad_generator = utils.clip_and_get_grad_values(generator)
@@ -147,9 +138,7 @@ def train_and_evaluate(
                 _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss:.2f}, disc_real_pred_loss: {disc_real_pred_loss:.2f}"
                 _info += f"\n\tfinal_generator_loss: {final_generator_loss:.2f}"
                 _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss:.2f}, disc_fake_pred_loss: {disc_fake_pred_loss:.2f}"
-                _info += (
-                    f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_log_prob: {cnf_log_prob:.2f}\n"
-                )
+                _info += f", recon_loss: {recon_loss:.2f}, kl_divergence: {kl_divergence:.2f}, cnf_log_prob: {cnf_log_prob:.2f}\n"
                 if logger is not None:
                     logger.info(_info)
 
@@ -186,9 +175,7 @@ def train_and_evaluate(
                 eval_final_discriminator_loss,
                 eval_disc_real_true_loss,
                 eval_disc_real_pred_loss,
-            ) = losses.calculate_final_discriminator_loss(
-                disc_true_output, disc_pred_output, return_only_final_loss=False
-            )
+            ) = criterion_discriminator(disc_true_output, disc_pred_output)
             (
                 eval_final_generator_loss,
                 eval_disc_fake_feature_map_loss,
@@ -196,7 +183,7 @@ def train_and_evaluate(
                 eval_recon_loss,
                 eval_kl_divergence,
                 eval_cnf_log_prob,
-            ) = losses.calculate_final_generator_loss(
+            ) = criterion_generator(
                 image_true=image,
                 imgae_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
@@ -204,11 +191,6 @@ def train_and_evaluate(
                 disc_pred_feature_maps=disc_pred_feature_maps,
                 std=std,
                 logp_x=logp_x,
-                disc_fake_feature_map_loss_weigth=disc_fake_feature_map_loss_weigth,
-                gan_generator_loss_weight=gan_generator_loss_weight,
-                vae_loss_weight=vae_loss_weight,
-                cnf_loss_weight=cnf_loss_weight,
-                return_only_final_loss=False,
             )
             break
 
@@ -304,12 +286,24 @@ def main(args):
     generator_n_params = utils.count_parameters(generator)
     discriminator_n_params = utils.count_parameters(discriminator)
     logger.info(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
+
+    criterion_generator = losses.FinalGeneratorLoss(
+        disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
+        gan_generator_loss_weight=args.gan_generator_loss_weight,
+        vae_loss_weight=args.vae_loss_weight,
+        cnf_loss_weight=args.cnf_loss_weight,
+        return_only_final_loss=False,
+    )
+    criterion_discriminator = losses.FinalDiscriminatorLoss(return_only_final_loss=False)
+
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
     optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=args.learning_rate)
 
     train_and_evaluate(
         generator=generator,
         discriminator=discriminator,
+        criterion_generator=criterion_generator,
+        criterion_discriminator=criterion_discriminator,
         optimizer_generator=optimizer_generator,
         optimizer_discriminator=optimizer_discriminator,
         train_dl=train_dl,
@@ -317,10 +311,6 @@ def main(args):
         n_epochs=args.n_epochs,
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
-        disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
-        gan_generator_loss_weight=args.gan_generator_loss_weight,
-        vae_loss_weight=args.vae_loss_weight,
-        cnf_loss_weight=args.cnf_loss_weight,
         viz=args.viz,
         n_viz_time_steps=args.n_viz_time_steps,
         checkpoint_save_dirpath=os.path.join(args.log_dirpath, "checkpoints"),
