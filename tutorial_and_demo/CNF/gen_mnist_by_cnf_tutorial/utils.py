@@ -1,9 +1,20 @@
 import os
 import sys
 import logging
+import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+
+def seed_everything(random_seed: int) -> None:
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(random_seed)
+    random.seed(random_seed)
 
 
 def get_logger(log_dirpath: str, log_filename: str = "training_log.log") -> logging:

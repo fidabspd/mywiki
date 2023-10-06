@@ -14,6 +14,8 @@ import losses
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=1234)
+
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--n_epochs", type=int, default=100)
@@ -249,6 +251,8 @@ def train_and_evaluate(
 
 
 def main(args):
+    utils.seed_everything(args.seed)
+
     logger = utils.get_logger(args.log_dirpath)
     tensorboard_train_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "train"))
     tensorboard_eval_writer = SummaryWriter(log_dir=os.path.join(args.log_dirpath, "eval"))
