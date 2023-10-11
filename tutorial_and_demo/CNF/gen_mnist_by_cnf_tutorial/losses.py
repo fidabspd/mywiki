@@ -39,14 +39,16 @@ class FinalGeneratorLoss(nn.Module):
         self,
         disc_fake_feature_map_loss_weigth: float = 1.0,
         gan_generator_loss_weight: float = 1.0,
-        vae_loss_weight: float = 1.0,
+        recon_loss_weight: float = 1.0,
+        kl_divergence_weight: float = 1.0,
         cnf_loss_weight: float = 1.0,
         return_only_final_loss: bool = True,
     ) -> None:
         super().__init__()
         self.disc_fake_feature_map_loss_weigth = disc_fake_feature_map_loss_weigth
         self.gan_generator_loss_weight = gan_generator_loss_weight
-        self.vae_loss_weight = vae_loss_weight
+        self.recon_loss_weight = recon_loss_weight
+        self.kl_divergence_weight = kl_divergence_weight
         self.cnf_loss_weight = cnf_loss_weight
         self.return_only_final_loss = return_only_final_loss
 
@@ -63,27 +65,26 @@ class FinalGeneratorLoss(nn.Module):
         for disc_true_feature_map, disc_pred_feature_map in zip(disc_true_feature_maps, disc_pred_feature_maps):
             disc_fake_feature_map_loss += torch.abs(disc_true_feature_map - disc_pred_feature_map).mean()
         return disc_fake_feature_map_loss
-
-    def calculate_vae_loss(
-        self,
-        image_true: torch.Tensor,
-        imgae_pred: torch.Tensor,
-        posterior_std: torch.Tensor,
-        prior_log_probs: torch.Tensor,
-    ) -> Tuple[torch.Tensor]:
-        recon_loss = image_true * torch.log(imgae_pred) + (1 - image_true) * torch.log(1 - imgae_pred)
+    
+    def calculate_recon_loss(
+        self, image_true: torch.Tensor, image_pred: torch.Tensor
+    ) -> torch.Tensor:
+        recon_loss = image_true * torch.log(image_pred) + (1 - image_true) * torch.log(1 - image_pred)
         recon_loss = torch.flatten(recon_loss, start_dim=1).sum(dim=1).mean()
+        return recon_loss
+    
+    def calculate_kl_divergence(
+        self, posterior_std: torch.Tensor, prior_log_probs: torch.Tensor
+    ) -> torch.Tensor:
         posterior_log_probs = (
             -torch.log(posterior_std)
             - 0.5 * torch.log(2 * torch.FloatTensor([torch.pi]).to(posterior_std.device))
             - 0.5
         )
         posterior_log_probs = posterior_log_probs.sum(dim=1)  # assume non diagonal elements of cov matrix are zero
-        kl_divergence = torch.abs(posterior_log_probs - prior_log_probs)
+        kl_divergence = posterior_log_probs - prior_log_probs
         kl_divergence = kl_divergence.mean()
-        elbo = recon_loss - kl_divergence
-        loss = -elbo
-        return loss, recon_loss, kl_divergence
+        return kl_divergence
 
     def calculate_cnf_loss(self, logp_x: torch.Tensor) -> Tuple[torch.Tensor]:
         log_prob = logp_x.mean()
@@ -93,7 +94,7 @@ class FinalGeneratorLoss(nn.Module):
     def forward(
         self,
         image_true: torch.Tensor,
-        imgae_pred: torch.Tensor,
+        image_pred: torch.Tensor,
         disc_pred_output: torch.Tensor,
         disc_true_feature_maps: List[torch.Tensor],
         disc_pred_feature_maps: List[torch.Tensor],
@@ -104,13 +105,15 @@ class FinalGeneratorLoss(nn.Module):
             disc_true_feature_maps, disc_pred_feature_maps
         )
         gan_generator_loss, disc_fake_pred_loss = self.calculate_gan_generator_loss(disc_pred_output)
-        vae_loss, recon_loss, kl_divergence = self.calculate_vae_loss(image_true, imgae_pred, std, logp_x)
+        recon_loss = self.calculate_recon_loss(image_true, image_pred)
+        kl_divergence = self.calculate_kl_divergence(std, logp_x)
         cnf_loss, cnf_log_prob = self.calculate_cnf_loss(logp_x)
         final_generator_loss = (
             self.disc_fake_feature_map_loss_weigth * disc_fake_feature_map_loss
             + self.gan_generator_loss_weight * gan_generator_loss
-            + self.vae_loss_weight * vae_loss
-            + self.cnf_loss_weight * cnf_loss
+            - self.recon_loss_weight * recon_loss
+            + self.kl_divergence_weight * kl_divergence
+            # + self.cnf_loss_weight * cnf_loss
         )
         if self.return_only_final_loss:
             return final_generator_loss

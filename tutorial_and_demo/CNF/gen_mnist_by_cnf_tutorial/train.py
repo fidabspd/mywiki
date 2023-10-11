@@ -35,7 +35,8 @@ def get_args():
 
     parser.add_argument("--disc_fake_feature_map_loss_weigth", type=float, default=1.0)
     parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
-    parser.add_argument("--vae_loss_weight", type=float, default=1.0)
+    parser.add_argument("--recon_loss_weight", type=float, default=1.0)
+    parser.add_argument("--kl_divergence_weight", type=float, default=1.0)
     parser.add_argument("--cnf_loss_weight", type=float, default=1.0)
 
     parser.add_argument("--viz", type=bool, default=True)
@@ -112,7 +113,7 @@ def train_and_evaluate(
                 cnf_log_prob,
             ) = criterion_generator(
                 image_true=image,
-                imgae_pred=reconstructed,
+                image_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
                 disc_true_feature_maps=disc_true_feature_maps,
                 disc_pred_feature_maps=disc_pred_feature_maps,
@@ -189,7 +190,7 @@ def train_and_evaluate(
                 eval_cnf_log_prob,
             ) = criterion_generator(
                 image_true=image,
-                imgae_pred=reconstructed,
+                image_pred=reconstructed,
                 disc_pred_output=disc_pred_output,
                 disc_true_feature_maps=disc_true_feature_maps,
                 disc_pred_feature_maps=disc_pred_feature_maps,
@@ -296,7 +297,8 @@ def main(args):
     criterion_generator = losses.FinalGeneratorLoss(
         disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
         gan_generator_loss_weight=args.gan_generator_loss_weight,
-        vae_loss_weight=args.vae_loss_weight,
+        recon_loss_weight=args.recon_loss_weight,
+        kl_divergence_weight=args.kl_divergence_weight,
         cnf_loss_weight=args.cnf_loss_weight,
         return_only_final_loss=False,
     )
