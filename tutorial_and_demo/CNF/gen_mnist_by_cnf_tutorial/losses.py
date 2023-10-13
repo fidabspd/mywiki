@@ -69,21 +69,15 @@ class FinalGeneratorLoss(nn.Module):
     def calculate_recon_loss(
         self, image_true: torch.Tensor, image_pred: torch.Tensor
     ) -> torch.Tensor:
-        recon_loss = image_true * torch.log(image_pred) + (1 - image_true) * torch.log(1 - image_pred)
+        recon_loss = image_true * torch.log(image_pred + 1e-7) + (1 - image_true) * torch.log(1 - image_pred + 1e-7)
         recon_loss = torch.flatten(recon_loss, start_dim=1).sum(dim=1).mean()
         return recon_loss
     
     def calculate_kl_divergence(
-        self, posterior_std: torch.Tensor, prior_log_probs: torch.Tensor
+        self, mean: torch.Tensor, std: torch.Tensor
     ) -> torch.Tensor:
-        posterior_log_probs = (
-            -torch.log(posterior_std)
-            - 0.5 * torch.log(2 * torch.FloatTensor([torch.pi]).to(posterior_std.device))
-            - 0.5
-        )
-        posterior_log_probs = posterior_log_probs.sum(dim=1)  # assume non diagonal elements of cov matrix are zero
-        kl_divergence = posterior_log_probs - prior_log_probs
-        kl_divergence = kl_divergence.mean()
+        kl_divergence = torch.square(mean) + torch.square(std) - torch.log(torch.square(std)) - 1
+        kl_divergence = 0.5 * torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
         return kl_divergence
 
     def calculate_cnf_loss(self, logp_x: torch.Tensor) -> Tuple[torch.Tensor]:
@@ -95,16 +89,17 @@ class FinalGeneratorLoss(nn.Module):
         self,
         image_true: torch.Tensor,
         image_pred: torch.Tensor,
+        mean: torch.Tensor,
         std: torch.Tensor,
         logp_x: torch.Tensor,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
         recon_loss = self.calculate_recon_loss(image_true, image_pred)
-        kl_divergence = self.calculate_kl_divergence(std, logp_x)
+        kl_divergence = self.calculate_kl_divergence(mean, std)
         cnf_loss, cnf_log_prob = self.calculate_cnf_loss(logp_x)
         final_generator_loss = (
             - self.recon_loss_weight * recon_loss
             + self.kl_divergence_weight * kl_divergence
-            # + self.cnf_loss_weight * cnf_loss
+            + self.cnf_loss_weight * cnf_loss
         )
         if self.return_only_final_loss:
             return final_generator_loss
