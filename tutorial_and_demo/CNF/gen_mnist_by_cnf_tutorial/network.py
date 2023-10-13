@@ -20,20 +20,15 @@ class ImageEncoder(nn.Module):
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
         self.epsilon = epsilon
-        self.linear_in = nn.Linear(in_dim, hidden_dim * 2)
-        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2 * n_hidden_layers)
-        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim * 2) for _ in range(n_hidden_layers)])
-        self.linear_out = nn.Linear(hidden_dim * 2, latent_dim * 2)
-        self.condition_mix_layer = TanhSigmoidMultiplyCondition(hidden_dim)
+        self.linear_in = nn.Linear(in_dim, hidden_dim)
+        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(n_hidden_layers)])
+        self.linear_out = nn.Linear(hidden_dim, latent_dim * 2)
         self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, input: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor]:
         output = torch.flatten(input, start_dim=1)
         output = self.linear_in(output)
-        condition = self.linear_condition(condition)
         for i, layer in enumerate(self.linear_hidden):
-            condition_seg = condition[:, i * self.hidden_dim * 2 : (i + 1) * self.hidden_dim * 2]
-            output = self.condition_mix_layer(output, condition_seg)
             output = self.dropout(torch.relu(layer(output)))
         output = self.linear_out(output)
         mean, std = torch.split(output, self.latent_dim, dim=1)
@@ -55,19 +50,14 @@ class ImageDecoder(nn.Module):
         super().__init__()
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
-        self.linear_in = nn.Linear(latent_dim, hidden_dim * 2)
-        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2 * n_hidden_layers)
-        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim * 2) for _ in range(n_hidden_layers)])
-        self.linear_out = nn.Linear(hidden_dim * 2, out_dim)
-        self.condition_mix_layer = TanhSigmoidMultiplyCondition(hidden_dim)
+        self.linear_in = nn.Linear(latent_dim, hidden_dim)
+        self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(n_hidden_layers)])
+        self.linear_out = nn.Linear(hidden_dim, out_dim)
         self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, input: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         output = self.linear_in(input)
-        condition = self.linear_condition(condition)
         for i, layer in enumerate(self.linear_hidden):
-            condition_seg = condition[:, i * self.hidden_dim * 2 : (i + 1) * self.hidden_dim * 2]
-            output = self.condition_mix_layer(output, condition_seg)
             output = self.dropout(torch.relu(layer(output)))
         output = torch.sigmoid(self.linear_out(output))
         output = output.view(-1, 1, int(self.out_dim**0.5), int(self.out_dim**0.5))
