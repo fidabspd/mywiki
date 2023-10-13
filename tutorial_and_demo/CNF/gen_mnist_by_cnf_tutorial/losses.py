@@ -95,22 +95,13 @@ class FinalGeneratorLoss(nn.Module):
         self,
         image_true: torch.Tensor,
         image_pred: torch.Tensor,
-        disc_pred_output: torch.Tensor,
-        disc_true_feature_maps: List[torch.Tensor],
-        disc_pred_feature_maps: List[torch.Tensor],
         std: torch.Tensor,
         logp_x: torch.Tensor,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
-        disc_fake_feature_map_loss = self.calculate_disc_fake_feature_map_loss(
-            disc_true_feature_maps, disc_pred_feature_maps
-        )
-        gan_generator_loss, disc_fake_pred_loss = self.calculate_gan_generator_loss(disc_pred_output)
         recon_loss = self.calculate_recon_loss(image_true, image_pred)
         kl_divergence = self.calculate_kl_divergence(std, logp_x)
         cnf_loss, cnf_log_prob = self.calculate_cnf_loss(logp_x)
         final_generator_loss = (
-            self.disc_fake_feature_map_loss_weigth * disc_fake_feature_map_loss
-            + self.gan_generator_loss_weight * gan_generator_loss
             - self.recon_loss_weight * recon_loss
             + self.kl_divergence_weight * kl_divergence
             # + self.cnf_loss_weight * cnf_loss
@@ -120,8 +111,6 @@ class FinalGeneratorLoss(nn.Module):
         else:
             return (
                 final_generator_loss,
-                disc_fake_feature_map_loss,
-                disc_fake_pred_loss,
                 recon_loss,
                 kl_divergence,
                 cnf_log_prob,

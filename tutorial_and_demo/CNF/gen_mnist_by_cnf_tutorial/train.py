@@ -49,11 +49,8 @@ def get_args():
 
 def train_and_evaluate(
     generator: torch.nn.Module,
-    discriminator: torch.nn.Module,
     criterion_generator: torch.nn.Module,
-    criterion_discriminator: torch.nn.Module,
     optimizer_generator: torch.optim,
-    optimizer_discriminator: torch.optim,
     train_dl: torch.utils.data.DataLoader,
     eval_dl: torch.utils.data.DataLoader,
     n_epochs: int = 100,
@@ -75,7 +72,6 @@ def train_and_evaluate(
             torch.cuda.empty_cache()
             global_step += 1
             generator.train()
-            discriminator.train()
 
             # batch data
             image, label = batch
@@ -83,25 +79,6 @@ def train_and_evaluate(
 
             # forward generator
             reconstructed, logp_x, mean, std = generator(image, label)
-
-            # forward discriminator
-            disc_true_output, disc_true_feature_maps = discriminator(image)
-            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
-
-            # backward discriminator
-            (
-                final_discriminator_loss,
-                disc_real_true_loss,
-                disc_real_pred_loss,
-            ) = criterion_discriminator(disc_true_output, disc_pred_output)
-            final_discriminator_loss.backward()
-            discriminator_grad = utils.clip_and_get_grad_values(discriminator)
-            optimizer_discriminator.step()
-            optimizer_discriminator.zero_grad()
-
-            # forward discriminator
-            disc_true_output, disc_true_feature_maps = discriminator(image)
-            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed)
 
             # backward generator
             (
@@ -114,9 +91,6 @@ def train_and_evaluate(
             ) = criterion_generator(
                 image_true=image,
                 image_pred=reconstructed,
-                disc_pred_output=disc_pred_output,
-                disc_true_feature_maps=disc_true_feature_maps,
-                disc_pred_feature_maps=disc_pred_feature_maps,
                 std=std,
                 logp_x=logp_x,
             )
@@ -124,11 +98,10 @@ def train_and_evaluate(
             generator_grad = utils.clip_and_get_grad_values(generator)
             optimizer_generator.step()
             optimizer_generator.zero_grad()
-            optimizer_discriminator.zero_grad()
 
             # result of step
             step_pbar.set_description(
-                f"[Global step: {global_step}, Discriminator loss: {final_discriminator_loss.item():.2f}, Generator loss: {final_generator_loss.item():.2f}]"
+                f"[Global step: {global_step}, Generator loss: {final_generator_loss.item():.2f}]"
             )
 
             if global_step % log_interval == 0:
@@ -136,10 +109,8 @@ def train_and_evaluate(
                 _info = ""
                 _info += f"\n=== Global step: {global_step} ==="
                 _info += f"\nGradient"
-                _info += f"\n\tgenerator_grad: {generator_grad.item():.2f}, discriminator_grad: {discriminator_grad.item():.2f}"
+                _info += f"\n\tgenerator_grad: {generator_grad.item():.2f}"
                 _info += f"\nTraining Loss"
-                _info += f"\n\tfinal_discriminator_loss: {final_discriminator_loss.item():.2f}"
-                _info += f"\n\t\tdisc_real_true_loss: {disc_real_true_loss.item():.2f}, disc_real_pred_loss: {disc_real_pred_loss.item():.2f}"
                 _info += f"\n\tfinal_generator_loss: {final_generator_loss.item():.2f}"
                 _info += f"\n\t\tdisc_fake_feature_map_loss: {disc_fake_feature_map_loss.item():.2f}, disc_fake_pred_loss: {disc_fake_pred_loss.item():.2f}"
                 _info += f", recon_loss: {recon_loss.item():.2f}, kl_divergence: {kl_divergence.item():.2f}, cnf_log_prob: {cnf_log_prob.item():.2f}\n"
@@ -149,10 +120,6 @@ def train_and_evaluate(
                 # tensorboard logging
                 scalar_dict = {}
                 scalar_dict.update({"grad/generator_grad": generator_grad})
-                scalar_dict.update({"grad/discriminator_grad": discriminator_grad})
-                scalar_dict.update({"final_discriminator_loss": final_discriminator_loss})
-                scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": disc_real_true_loss})
-                scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": disc_real_pred_loss})
                 scalar_dict.update({"final_generator_loss": final_generator_loss})
                 scalar_dict.update({"final_generator_loss/disc_fake_feature_map_loss": disc_fake_feature_map_loss})
                 scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": disc_fake_pred_loss})
@@ -168,19 +135,11 @@ def train_and_evaluate(
 
     def evaluate():
         generator.eval()
-        discriminator.eval()
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
             reconstructed, logp_x, mean, std = generator(image, label)
-            disc_true_output, disc_true_feature_maps = discriminator(image)
-            disc_pred_output, disc_pred_feature_maps = discriminator(reconstructed.detach())
 
-            (
-                eval_final_discriminator_loss,
-                eval_disc_real_true_loss,
-                eval_disc_real_pred_loss,
-            ) = criterion_discriminator(disc_true_output, disc_pred_output)
             (
                 eval_final_generator_loss,
                 eval_disc_fake_feature_map_loss,
@@ -191,9 +150,6 @@ def train_and_evaluate(
             ) = criterion_generator(
                 image_true=image,
                 image_pred=reconstructed,
-                disc_pred_output=disc_pred_output,
-                disc_true_feature_maps=disc_true_feature_maps,
-                disc_pred_feature_maps=disc_pred_feature_maps,
                 std=std,
                 logp_x=logp_x,
             )
@@ -203,8 +159,6 @@ def train_and_evaluate(
         _info = ""
         _info += f"\n=== Global step: {global_step} ==="
         _info += f"\nEvaluation Loss"
-        _info += f"\n\tfinal_discriminator_loss: {eval_final_discriminator_loss.item():.2f}"
-        _info += f"\n\t\tdisc_real_true_loss: {eval_disc_real_true_loss.item():.2f}, disc_real_pred_loss: {eval_disc_real_pred_loss.item():.2f}"
         _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss.item():.2f}"
         _info += f"\n\t\tdisc_fake_feature_map_loss: {eval_disc_fake_feature_map_loss.item():.2f}, disc_fake_pred_loss: {eval_disc_fake_pred_loss.item():.2f}"
         _info += f", recon_loss: {eval_recon_loss.item():.2f}, kl_divergence: {eval_kl_divergence.item():.2f}, cnf_log_prob: {eval_cnf_log_prob.item():.2f}\n"
@@ -213,9 +167,6 @@ def train_and_evaluate(
 
         # tensorboard logging
         scalar_dict = {}
-        scalar_dict.update({"final_discriminator_loss": eval_final_discriminator_loss})
-        scalar_dict.update({"final_discriminator_loss/disc_real_true_loss": eval_disc_real_true_loss})
-        scalar_dict.update({"final_discriminator_loss/disc_real_pred_loss": eval_disc_real_pred_loss})
         scalar_dict.update({"final_generator_loss": eval_final_generator_loss})
         scalar_dict.update({"final_generator_loss/disc_fake_feature_map_loss": eval_disc_fake_feature_map_loss})
         scalar_dict.update({"final_generator_loss/disc_fake_pred_loss": eval_disc_fake_pred_loss})
@@ -228,12 +179,8 @@ def train_and_evaluate(
 
         # save checkpoint
         generator_checkpoint_filepath = os.path.join(checkpoint_save_dirpath, f"cpt_gen_{global_step}.pth")
-        discriminator_checkpoint_filepath = os.path.join(checkpoint_save_dirpath, f"cpt_disc_{global_step}.pth")
         utils.save_checkpoint(
             generator, optimizer_generator, epoch_idx, global_step, generator_checkpoint_filepath, logger
-        )
-        utils.save_checkpoint(
-            discriminator, optimizer_discriminator, epoch_idx, global_step, discriminator_checkpoint_filepath, logger
         )
 
         # visualization
@@ -284,15 +231,8 @@ def main(args):
         dropout_ratio=args.dropout_ratio,
         device=args.device,
     ).to(args.device)
-    discriminator = FullDiscriminator(
-        in_channels=1,
-        hidden_channels=32,
-        out_channels=1,
-        stride=1,
-    ).to(args.device)
     generator_n_params = utils.count_parameters(generator)
-    discriminator_n_params = utils.count_parameters(discriminator)
-    logger.info(f"generator_n_params: {generator_n_params}, discriminator_n_params: {discriminator_n_params}")
+    logger.info(f"generator_n_params: {generator_n_params}")
 
     criterion_generator = losses.FinalGeneratorLoss(
         disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
@@ -302,18 +242,13 @@ def main(args):
         cnf_loss_weight=args.cnf_loss_weight,
         return_only_final_loss=False,
     )
-    criterion_discriminator = losses.FinalDiscriminatorLoss(return_only_final_loss=False)
 
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
-    optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr=args.learning_rate)
 
     train_and_evaluate(
         generator=generator,
-        discriminator=discriminator,
         criterion_generator=criterion_generator,
-        criterion_discriminator=criterion_discriminator,
         optimizer_generator=optimizer_generator,
-        optimizer_discriminator=optimizer_discriminator,
         train_dl=train_dl,
         eval_dl=train_dl,
         n_epochs=args.n_epochs,
