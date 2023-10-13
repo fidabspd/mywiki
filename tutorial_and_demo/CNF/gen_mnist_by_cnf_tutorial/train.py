@@ -37,7 +37,7 @@ def get_args():
     parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
     parser.add_argument("--recon_loss_weight", type=float, default=1.0)
     parser.add_argument("--kl_divergence_weight", type=float, default=1.0)
-    parser.add_argument("--cnf_loss_weight", type=float, default=1.0)
+    parser.add_argument("--cnf_loss_weight", type=float, default=0.1)
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
