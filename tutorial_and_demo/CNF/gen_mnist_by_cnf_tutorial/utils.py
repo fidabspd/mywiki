@@ -103,6 +103,22 @@ def save_checkpoint(
     )
 
 
+def load_checkpoint(
+    checkpoint_filepath: str, model: torch.nn.Module, optimizer: torch.optim, logger: logging = None
+) -> tuple:
+    saved_checkpoint = torch.load(checkpoint_filepath)
+
+    epoch = saved_checkpoint["epoch"]
+    global_step = saved_checkpoint["global_step"]
+    model.load_state_dict(saved_checkpoint["model"])
+    optimizer.load_state_dict(saved_checkpoint["optimizer"])
+
+    if logger is not None:
+        logger.info(f"Load checkpoint {checkpoint_filepath}")
+
+    return epoch, global_step, model, optimizer
+
+
 def visualize_inference_result(
     z_t_samples: torch.Tensor,
     condition: int,

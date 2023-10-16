@@ -43,11 +43,15 @@ def get_args():
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
     parser.add_argument("--log_dirpath", type=str, default="./logs_vae_cnf_5/")
 
+    parser.add_argument("--checkpoint_filepath", type=str, default="")
+
     parser.add_argument("--device", type=str, default="cuda:0")
     return parser.parse_args()
 
 
 def train_and_evaluate(
+    epoch: int,
+    global_step: int,
     generator: torch.nn.Module,
     criterion_generator: torch.nn.Module,
     optimizer_generator: torch.optim,
@@ -172,7 +176,7 @@ def train_and_evaluate(
         # save checkpoint
         generator_checkpoint_filepath = os.path.join(checkpoint_save_dirpath, f"cpt_gen_{global_step}.pth")
         utils.save_checkpoint(
-            generator, optimizer_generator, epoch_idx, global_step, generator_checkpoint_filepath, logger
+            generator, optimizer_generator, epoch, global_step, generator_checkpoint_filepath, logger
         )
 
         # visualization
@@ -182,11 +186,10 @@ def train_and_evaluate(
             condition = condition[0].cpu().item()
             utils.visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
 
-    global_step = 4000
-
     epoch_pbar = tqdm(range(n_epochs))
-    for epoch_idx in epoch_pbar:
-        epoch_pbar.set_description(f"Epoch: {epoch_idx}")
+    for _ in epoch_pbar:
+        epoch += 1
+        epoch_pbar.set_description(f"Epoch: {epoch}")
         train_and_evaluate_one_epoch()
 
 
@@ -224,20 +227,22 @@ def main(args):
         device=args.device,
     ).to(args.device)
 
-    for p in generator.image_encoder.parameters():
-        p.requires_grad = False
-    for p in generator.image_decoder.parameters():
-        p.requires_grad = False
+    # for p in generator.image_encoder.parameters():
+    #     p.requires_grad = False
+    # for p in generator.image_decoder.parameters():
+    #     p.requires_grad = False
 
     generator_n_params = utils.count_parameters(generator)
     logger.info(f"generator_n_params: {generator_n_params}")
 
-    checkpoint_filepath = "./logs_vae_cnf_5/checkpoints/cpt_gen_4000.pth"
-    saved_checkpoint = torch.load(checkpoint_filepath)
-    saved_state_dict = saved_checkpoint["model"]
-    generator.load_state_dict(saved_state_dict)
-    logger.info(f"Load checkpoint {checkpoint_filepath}")
-    generator
+    optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
+
+    if args.checkpoint_filepath:
+        epoch, global_step, generator, optimizer_generator = utils.load_checkpoint(
+            args.checkpoint_filepath, generator, optimizer_generator, logger
+        )
+    else:
+        epoch, global_step = -1, -1
 
     criterion_generator = losses.FinalGeneratorLoss(
         disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
@@ -248,9 +253,9 @@ def main(args):
         return_only_final_loss=False,
     )
 
-    optimizer_generator = torch.optim.Adam(generator.parameters(), lr=args.learning_rate)
-
     train_and_evaluate(
+        epoch=epoch,
+        global_step=global_step,
         generator=generator,
         criterion_generator=criterion_generator,
         optimizer_generator=optimizer_generator,
