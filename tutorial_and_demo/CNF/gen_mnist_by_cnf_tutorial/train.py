@@ -35,13 +35,13 @@ def get_args():
 
     parser.add_argument("--disc_fake_feature_map_loss_weigth", type=float, default=1.0)
     parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
-    parser.add_argument("--recon_loss_weight", type=float, default=1.0)
-    parser.add_argument("--kl_divergence_weight", type=float, default=1.0)
+    parser.add_argument("--recon_loss_weight", type=float, default=3.0)
+    parser.add_argument("--kl_divergence_weight", type=float, default=3.0)
     parser.add_argument("--cnf_loss_weight", type=float, default=0.1)
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
-    parser.add_argument("--log_dirpath", type=str, default="./logs_vae_cnf_1/")
+    parser.add_argument("--log_dirpath", type=str, default="./logs_vae_cnf_5/")
 
     parser.add_argument("--device", type=str, default="cuda:0")
     return parser.parse_args()
@@ -182,7 +182,7 @@ def train_and_evaluate(
             condition = condition[0].cpu().item()
             utils.visualize_inference_result(z_t_samples, condition, time_space, viz_save_dirpath, global_step)
 
-    global_step = -1
+    global_step = 4000
 
     epoch_pbar = tqdm(range(n_epochs))
     for epoch_idx in epoch_pbar:
@@ -223,8 +223,21 @@ def main(args):
         dropout_ratio=args.dropout_ratio,
         device=args.device,
     ).to(args.device)
+
+    for p in generator.image_encoder.parameters():
+        p.requires_grad = False
+    for p in generator.image_decoder.parameters():
+        p.requires_grad = False
+
     generator_n_params = utils.count_parameters(generator)
     logger.info(f"generator_n_params: {generator_n_params}")
+
+    checkpoint_filepath = "./logs_vae_cnf_5/checkpoints/cpt_gen_4000.pth"
+    saved_checkpoint = torch.load(checkpoint_filepath)
+    saved_state_dict = saved_checkpoint["model"]
+    generator.load_state_dict(saved_state_dict)
+    logger.info(f"Load checkpoint {checkpoint_filepath}")
+    generator
 
     criterion_generator = losses.FinalGeneratorLoss(
         disc_fake_feature_map_loss_weigth=args.disc_fake_feature_map_loss_weigth,
