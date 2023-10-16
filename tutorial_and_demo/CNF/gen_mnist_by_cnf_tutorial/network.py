@@ -22,7 +22,7 @@ class ImageEncoder(nn.Module):
         self.epsilon = epsilon
         self.linear_in = nn.Linear(in_dim, hidden_dim)
         self.linear_hidden = nn.ModuleList([nn.Linear(hidden_dim, hidden_dim) for _ in range(n_hidden_layers)])
-        self.linear_out = nn.Linear(hidden_dim, latent_dim * 2)
+        self.linear_out = nn.Linear(hidden_dim, latent_dim)
         self.dropout = nn.Dropout(dropout_ratio)
 
     def forward(self, input: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor]:
@@ -31,10 +31,7 @@ class ImageEncoder(nn.Module):
         for i, layer in enumerate(self.linear_hidden):
             output = self.dropout(torch.relu(layer(output)))
         output = self.linear_out(output)
-        mean, std = torch.split(output, self.latent_dim, dim=1)
-        std = torch.exp(std) + self.epsilon
-        output = mean + torch.randn_like(mean) * std
-        return output, mean, std
+        return output
 
 
 class ImageDecoder(nn.Module):
@@ -284,7 +281,7 @@ class AECNF(nn.Module):
     def forward(self, input: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor]:
         condition = self.condition_embedding_layer(condition)
 
-        z_t1, mean, std = self.image_encoder(input, condition)
+        z_t1 = self.image_encoder(input, condition)
         reconstructed = self.image_decoder(z_t1, condition)
 
         logp_diff_t1 = torch.zeros(self.batch_size, 1).type(torch.float32).to(self.device)
@@ -300,7 +297,7 @@ class AECNF(nn.Module):
 
         logp_x = self.p_z0.log_prob(z_t0).to(self.device) - logp_diff_t0.view(-1)
 
-        return reconstructed, logp_x, mean, std
+        return reconstructed, logp_x
 
     def generate(self, condition: torch.Tensor, n_time_steps: int = 2) -> Tuple[torch.Tensor]:
         with torch.no_grad():

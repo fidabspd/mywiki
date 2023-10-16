@@ -41,7 +41,7 @@ def get_args():
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
-    parser.add_argument("--log_dirpath", type=str, default="./logs_vae_cnf_5/")
+    parser.add_argument("--log_dirpath", type=str, default="./logs_ae_cnf_0/")
 
     parser.add_argument("--checkpoint_filepath", type=str, default="")
 
@@ -82,19 +82,16 @@ def train_and_evaluate(
             image, label = image.to(args.device), label.to(args.device)
 
             # forward generator
-            reconstructed, logp_x, mean, std = generator(image, label)
+            reconstructed, logp_x = generator(image, label)
 
             # backward generator
             (
                 final_generator_loss,
                 recon_loss,
-                kl_divergence,
                 cnf_log_prob,
             ) = criterion_generator(
                 image_true=image,
                 image_pred=reconstructed,
-                mean=mean,
-                std=std,
                 logp_x=logp_x,
             )
             final_generator_loss.backward()
@@ -115,7 +112,7 @@ def train_and_evaluate(
                 _info += f"\n\tgenerator_grad: {generator_grad.item():.2f}"
                 _info += f"\nTraining Loss"
                 _info += f"\n\tfinal_generator_loss: {final_generator_loss.item():.2f}"
-                _info += f", recon_loss: {recon_loss.item():.2f}, kl_divergence: {kl_divergence.item():.2f}, cnf_log_prob: {cnf_log_prob.item():.2f}\n"
+                _info += f", recon_loss: {recon_loss.item():.2f}, cnf_log_prob: {cnf_log_prob.item():.2f}\n"
                 if logger is not None:
                     logger.info(_info)
 
@@ -124,7 +121,6 @@ def train_and_evaluate(
                 scalar_dict.update({"grad/generator_grad": generator_grad})
                 scalar_dict.update({"final_generator_loss": final_generator_loss})
                 scalar_dict.update({"final_generator_loss/recon_loss": recon_loss})
-                scalar_dict.update({"final_generator_loss/kl_divergence": kl_divergence})
                 scalar_dict.update({"final_generator_loss/cnf_log_prob": cnf_log_prob})
                 if tensorabord_train_writer is not None:
                     for k, v in scalar_dict.items():
@@ -138,18 +134,15 @@ def train_and_evaluate(
         for batch in eval_dl:
             image, label = batch
             image, label = image.to(args.device), label.to(args.device)
-            reconstructed, logp_x, mean, std = generator(image, label)
+            reconstructed, logp_x = generator(image, label)
 
             (
                 eval_final_generator_loss,
                 eval_recon_loss,
-                eval_kl_divergence,
                 eval_cnf_log_prob,
             ) = criterion_generator(
                 image_true=image,
                 image_pred=reconstructed,
-                mean=mean,
-                std=std,
                 logp_x=logp_x,
             )
             break
@@ -159,7 +152,7 @@ def train_and_evaluate(
         _info += f"\n=== Global step: {global_step} ==="
         _info += f"\nEvaluation Loss"
         _info += f"\n\tfinal_generator_loss: {eval_final_generator_loss.item():.2f}"
-        _info += f", recon_loss: {eval_recon_loss.item():.2f}, kl_divergence: {eval_kl_divergence.item():.2f}, cnf_log_prob: {eval_cnf_log_prob.item():.2f}\n"
+        _info += f", recon_loss: {eval_recon_loss.item():.2f}, cnf_log_prob: {eval_cnf_log_prob.item():.2f}\n"
         if logger is not None:
             logger.info(_info)
 
@@ -167,7 +160,6 @@ def train_and_evaluate(
         scalar_dict = {}
         scalar_dict.update({"final_generator_loss": eval_final_generator_loss})
         scalar_dict.update({"final_generator_loss/recon_loss": eval_recon_loss})
-        scalar_dict.update({"final_generator_loss/kl_divergence": eval_kl_divergence})
         scalar_dict.update({"final_generator_loss/cnf_log_prob": eval_cnf_log_prob})
         if tensorabord_eval_writer is not None:
             for k, v in scalar_dict.items():

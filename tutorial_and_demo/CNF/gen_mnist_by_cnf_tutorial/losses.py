@@ -89,16 +89,12 @@ class FinalGeneratorLoss(nn.Module):
         self,
         image_true: torch.Tensor,
         image_pred: torch.Tensor,
-        mean: torch.Tensor,
-        std: torch.Tensor,
         logp_x: torch.Tensor,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
         recon_loss = self.calculate_recon_loss(image_true, image_pred)
-        kl_divergence = self.calculate_kl_divergence(mean, std)
         cnf_loss, cnf_log_prob = self.calculate_cnf_loss(logp_x)
         final_generator_loss = (
             - self.recon_loss_weight * recon_loss
-            + self.kl_divergence_weight * kl_divergence
             + self.cnf_loss_weight * cnf_loss
         )
         if self.return_only_final_loss:
@@ -107,6 +103,5 @@ class FinalGeneratorLoss(nn.Module):
             return (
                 final_generator_loss,
                 recon_loss,
-                kl_divergence,
                 cnf_log_prob,
             )
