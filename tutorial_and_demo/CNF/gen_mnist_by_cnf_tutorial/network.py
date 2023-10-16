@@ -76,7 +76,8 @@ class HyperNetwork(nn.Module):
 
         self.linear_t = nn.Linear(1, hidden_dim * 2)
         self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2)
-        self.linear_hidden = nn.Linear(hidden_dim, hidden_dim)
+        self.linear_hidden_0 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear_hidden_1 = nn.Linear(hidden_dim, hidden_dim)
         self.linear_out = nn.Linear(hidden_dim, 3 * blocksize + width)
 
         self.in_out_dim = in_out_dim
@@ -90,7 +91,8 @@ class HyperNetwork(nn.Module):
         t = self.linear_t(t)
         condition = self.linear_condition(condition)
         params = self.condition_layer(t, condition)
-        params = torch.tanh(self.linear_hidden(params))
+        params = torch.tanh(self.linear_hidden_0(params))
+        params = torch.tanh(self.linear_hidden_1(params))
         params = self.linear_out(params)
 
         # restructure
