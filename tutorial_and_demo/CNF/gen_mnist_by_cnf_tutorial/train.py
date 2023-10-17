@@ -18,7 +18,7 @@ def get_args():
 
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--n_epochs", type=int, default=35)
+    parser.add_argument("--n_epochs", type=int, default=17)
     parser.add_argument("--log_interval", type=int, default=25)
     parser.add_argument("--eval_interval", type=int, default=100)
     parser.add_argument("--learning_rate", type=float, default=0.002)
@@ -41,11 +41,11 @@ def get_args():
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
-    parser.add_argument("--log_dirpath", type=str, default="./logs_ae_cnf_0/")
+    parser.add_argument("--log_dirpath", type=str, default="./logs/ae_cnf_notcond_0/")
 
     parser.add_argument("--checkpoint_filepath", type=str, default="")
 
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:1")
     return parser.parse_args()
 
 
@@ -222,6 +222,8 @@ def main(args):
     # for p in generator.image_encoder.parameters():
     #     p.requires_grad = False
     # for p in generator.image_decoder.parameters():
+    #     p.requires_grad = False
+    # for p in generator.ode_func.parameters():
     #     p.requires_grad = False
 
     generator_n_params = utils.count_parameters(generator)

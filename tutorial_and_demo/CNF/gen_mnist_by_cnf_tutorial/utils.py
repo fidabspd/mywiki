@@ -130,7 +130,6 @@ def visualize_inference_result(
         os.makedirs(save_dirpath)
 
     fig, ax = plt.subplots(1, 11, figsize=(22, 1.8))
-    plt.suptitle(f"condition: {condition}", fontsize=17, y=1.15)
     for i in range(11):
         t = time_space[i]
         z_sample = z_t_samples[i].view(28, 28)

@@ -69,11 +69,7 @@ class HyperNetwork(nn.Module):
 
         blocksize = width * in_out_dim
 
-        self.condition_layer = TanhSigmoidMultiplyCondition(hidden_dim)
-
-        self.linear_t = nn.Linear(1, hidden_dim * 2)
-        self.linear_condition = nn.Linear(condition_dim, hidden_dim * 2)
-        self.linear_hidden_0 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear_hidden_0 = nn.Linear(1, hidden_dim)
         self.linear_hidden_1 = nn.Linear(hidden_dim, hidden_dim)
         self.linear_out = nn.Linear(hidden_dim, 3 * blocksize + width)
 
@@ -82,12 +78,9 @@ class HyperNetwork(nn.Module):
         self.width = width
         self.blocksize = blocksize
 
-    def forward(self, t, condition):
+    def forward(self, t):
         # predict params
-        t = t.reshape(1, 1)
-        t = self.linear_t(t)
-        condition = self.linear_condition(condition)
-        params = self.condition_layer(t, condition)
+        params = t.reshape(1, 1)
         params = torch.tanh(self.linear_hidden_0(params))
         params = torch.tanh(self.linear_hidden_1(params))
         params = self.linear_out(params)
@@ -147,13 +140,13 @@ class ODEFunc(nn.Module):
         return sum_diag.contiguous()  # [batch_size]
 
     def forward(self, t, states):
-        z, logp_z, condition = states
+        z, logp_z = states
         batchsize = z.shape[0]
 
         with torch.set_grad_enabled(True):
             z.requires_grad_(True)
 
-            W, B, U = self.hyper_net(t, condition)
+            W, B, U = self.hyper_net(t)
 
             Z = z.unsqueeze(0).unsqueeze(-2).repeat(self.width, 1, 1, 1)
 
@@ -163,7 +156,7 @@ class ODEFunc(nn.Module):
 
             dlogp_z_dt = -self.trace_df_dz(dz_dt, z).view(batchsize, 1)
 
-        return (dz_dt, dlogp_z_dt, condition)
+        return (dz_dt, dlogp_z_dt)
 
 
 class PartDiscriminator(nn.Module):
@@ -285,9 +278,9 @@ class AECNF(nn.Module):
         reconstructed = self.image_decoder(z_t1, condition)
 
         logp_diff_t1 = torch.zeros(self.batch_size, 1).type(torch.float32).to(self.device)
-        z_t, logp_diff_t, condition = odeint(
+        z_t, logp_diff_t = odeint(
             self.ode_func,
-            (z_t1, logp_diff_t1, condition),
+            (z_t1, logp_diff_t1),
             torch.tensor([self.t1, self.t0]).type(torch.float32).to(self.device),  # focus on [T1, T0] (not [T0, T1])
             atol=1e-5,
             rtol=1e-5,
@@ -301,22 +294,19 @@ class AECNF(nn.Module):
 
     def generate(self, condition: torch.Tensor, n_time_steps: int = 2) -> Tuple[torch.Tensor]:
         with torch.no_grad():
-            condition = self.condition_embedding_layer(condition)
-
             z_t0 = self.p_z0.sample([1]).to(self.device)
             logp_diff_t0 = torch.zeros(1, 1).type(torch.float32).to(self.device)
 
             time_space = np.linspace(self.t0, self.t1, n_time_steps)  # [T0, T1] for generation
-            z_t_samples, _, condition = odeint(
+            z_t_samples, _ = odeint(
                 self.ode_func,
-                (z_t0, logp_diff_t0, condition),
+                (z_t0, logp_diff_t0),
                 torch.tensor(time_space).to(self.device),
                 atol=1e-5,
                 rtol=1e-5,
                 method="dopri5",
             )
             z_t_samples = z_t_samples.view(n_time_steps, -1)
-            condition = condition.view(n_time_steps, -1)
             gen_image = self.image_decoder(z_t_samples, condition)
 
         return gen_image, time_space
