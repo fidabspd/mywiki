@@ -18,7 +18,7 @@ def get_args():
 
     parser.add_argument("--data_dirpath", type=str, default="./.data/")
     parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--n_epochs", type=int, default=18)
+    parser.add_argument("--n_epochs", type=int, default=35)
     parser.add_argument("--log_interval", type=int, default=25)
     parser.add_argument("--eval_interval", type=int, default=100)
     parser.add_argument("--learning_rate", type=float, default=0.002)
@@ -36,12 +36,12 @@ def get_args():
     parser.add_argument("--disc_fake_feature_map_loss_weigth", type=float, default=1.0)
     parser.add_argument("--gan_generator_loss_weight", type=float, default=1.0)
     parser.add_argument("--recon_loss_weight", type=float, default=3.0)
-    parser.add_argument("--kl_divergence_weight", type=float, default=1.0)
+    parser.add_argument("--kl_divergence_weight", type=float, default=0.1)
     parser.add_argument("--cnf_loss_weight", type=float, default=0.1)
 
     parser.add_argument("--viz", type=bool, default=True)
     parser.add_argument("--n_viz_time_steps", type=int, default=11)
-    parser.add_argument("--log_dirpath", type=str, default="./logs/vae_cnf_notcond_3/")
+    parser.add_argument("--log_dirpath", type=str, default="./logs/vae_cnf_notcond_ver2_final/")
 
     parser.add_argument("--checkpoint_filepath", type=str, default="")
 

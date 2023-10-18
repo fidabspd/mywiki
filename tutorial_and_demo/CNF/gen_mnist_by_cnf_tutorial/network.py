@@ -29,7 +29,7 @@ class ImageEncoder(nn.Module):
         output = torch.flatten(input, start_dim=1)
         output = self.linear_in(output)
         for i, layer in enumerate(self.linear_hidden):
-            output = self.dropout(torch.relu(layer(output)))
+            output = self.dropout(torch.tanh(layer(output)))
         output = self.linear_out(output)
         mean, std = torch.split(output, self.latent_dim, dim=1)
         std = torch.exp(std) + self.epsilon
