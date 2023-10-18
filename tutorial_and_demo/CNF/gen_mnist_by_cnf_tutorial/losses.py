@@ -76,8 +76,8 @@ class FinalGeneratorLoss(nn.Module):
     def calculate_kl_divergence(
         self, mean: torch.Tensor, std: torch.Tensor
     ) -> torch.Tensor:
-        kl_divergence = torch.square(mean) + torch.square(std) - torch.log(torch.square(std)) - 1
-        kl_divergence = 0.5 * torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
+        kl_divergence = 0.5 * (-2 * torch.log(std) + torch.square(std) + torch.square(mean) - 1)
+        kl_divergence = torch.flatten(kl_divergence, start_dim=1).sum(dim=1).mean()
         return kl_divergence
 
     def calculate_cnf_loss(self, logp_x: torch.Tensor) -> Tuple[torch.Tensor]:
